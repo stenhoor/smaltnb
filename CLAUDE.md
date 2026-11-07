@@ -42,6 +42,8 @@ npm run docs:dev       # the docs site (VitePress) with live reload; docs:build 
 ## Working rules for sessions
 
 - One task per branch and PR. Do not add unrelated work to an open PR: it holds up everything else in it.
+- Never stack PRs: branch from `main`, target `main`, and wait for a dependency to merge before opening the work that
+  needs it.
 - Mark unfinished work clearly, and open a PR only when CI passes.
 - Read review comments on your PR and answer them with commits that say what they address.
 - When a PR depends on another repo's PR, add a line such as `Depends on: stenhoor/smalt-brand#2`.

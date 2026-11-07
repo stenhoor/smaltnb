@@ -2,7 +2,7 @@
 
 **Small. Alternative. Notebooks.**
 
-Reactive notebooks in TypeScript for [smaltdb](https://github.com/stenhoor/smaltdb). A notebook is a TypeScript file: cells are
+Reactive notebooks for [smaltdb](https://github.com/stenhoor/smaltdb). A notebook is a TypeScript file: cells are
 top-level code, the graph comes from the names they define and read, and `export` makes a notebook a library other
 notebooks import. TypeScript, SQL ([smaltql](https://github.com/stenhoor/smaltql)) and dataframes
 ([smaltdf](https://github.com/stenhoor/smaltdf)) are first-class.

@@ -11,18 +11,8 @@ hero:
     alt: smaltnb
   actions:
     - theme: brand
-      text: Open a notebook
-      link: https://stenhoor.github.io/smaltnb/app/
-    - theme: alt
-      text: Notebooks
+      text: Getting started
       link: /guide/notebooks
-    - theme: alt
-      text: The format
-      link: /guide/format
-    - theme: alt
-      text: Status
-      link: /guide/status
-
 features:
   - title: A notebook is a TypeScript file
     details: A .nb.ts file is a valid TypeScript module that tsc checks as written. Diffs are code diffs, and any editor opens it.

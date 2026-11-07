@@ -66,6 +66,7 @@ export default defineConfig({
         items: [
           { text: 'Notebooks', link: '/guide/notebooks' },
           { text: 'The notebook format', link: '/guide/format' },
+          { text: 'The runtime', link: '/guide/runtime' },
           { text: 'Status', link: '/guide/status' },
         ],
       },

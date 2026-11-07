@@ -43,6 +43,8 @@ export interface Cell {
   body: Span | null;
   /** Top-level names this cell declares, values and types. */
   defines: string[];
+  /** The subset of `defines` that exists only as a type (interfaces, type aliases, type-only imports). */
+  typeDefines: string[];
   /** The subset of `defines` that is exported. */
   exports: string[];
   /** Top-level names of other cells this cell reads at run time. */
@@ -144,7 +146,7 @@ export function parseNotebook(source: string, ts: TypeScript, options: ParseOpti
     let id = 'setup';
     const cell: Cell = {
       id, kind: g.kind, lang: 'ts', run: 'auto', store: 'memory', live: false, hide: false, when: null,
-      span: span(0, 0), body: null, defines: [], exports: [], reads: [], typeReads: [], output: null,
+      span: span(0, 0), body: null, defines: [], typeDefines: [], exports: [], reads: [], typeReads: [], output: null,
     };
     if (g.call) {
       const [nameArg, optsArg, ...rest] = g.call.arguments;
@@ -211,6 +213,7 @@ export function parseNotebook(source: string, ts: TypeScript, options: ParseOpti
     const cell = cells[cellIndex]!;
     if (sym) declared.set(sym, { cell: cellIndex, name, hoisted, typeOnly });
     if (!cell.defines.includes(name)) cell.defines.push(name);
+    if (typeOnly && !cell.typeDefines.includes(name)) cell.typeDefines.push(name);
     if (exported && !cell.exports.includes(name)) cell.exports.push(name);
   };
   const bindingNames = (name: TS.BindingName, out: TS.Identifier[] = []): TS.Identifier[] => {

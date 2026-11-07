@@ -87,3 +87,9 @@ test('the package root exports the markers and the analysis', () => {
   assert.equal(typeof nb.parseNotebook, 'function');
   assert.equal(typeof nb.buildGraph, 'function');
 });
+
+test('propagate: cells run on request run whatever their mode, and count as run downstream', () => {
+  // clean is lazy; asked to run, it runs, and byRegion (auto) runs after it. The action only goes stale.
+  assert.deepEqual(propagate(example, [], { run: ['clean'] }), { run: ['clean', 'byRegion'], stale: ['write clean'] });
+  assert.deepEqual(propagate(example, [], { run: ['write clean'] }), { run: ['write clean'], stale: [] });
+});

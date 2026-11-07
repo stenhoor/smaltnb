@@ -165,3 +165,12 @@ test('spans give 1-based lines', () => {
   assert.match(lines[clean.span.line - 1]!, /^cell\('clean'/);
   assert.match(lines[clean.body!.line - 1]!, /^export const clean/);
 });
+
+test('typeDefines lists names that exist only as types', () => {
+  const nb = parse(`import { cell } from 'smaltnb';
+import type { T } from './t.js';
+cell('a'); interface I { n: number } type U = I | T; const v: U = { n: 1 }; enum E { A }`);
+  assert.deepEqual(nb.cells[0]!.typeDefines, ['T']);
+  assert.deepEqual(nb.cells[1]!.typeDefines, ['I', 'U']);
+  assert.deepEqual(nb.cells[1]!.defines, ['I', 'U', 'v', 'E']);
+});

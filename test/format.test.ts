@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import ts from 'typescript';
-import { parseNotebook, type Notebook } from 'smaltnb/format';
+import { parseNotebook, sqlBody, type Notebook } from 'smaltnb/format';
 
 const parse = (source: string): Notebook => parseNotebook(source, ts);
 const example = readFileSync(new URL('../examples/regional.nb.ts', import.meta.url), 'utf8');
@@ -173,4 +173,44 @@ cell('a'); interface I { n: number } type U = I | T; const v: U = { n: 1 }; enum
   assert.deepEqual(nb.cells[0]!.typeDefines, ['T']);
   assert.deepEqual(nb.cells[1]!.typeDefines, ['I', 'U']);
   assert.deepEqual(nb.cells[1]!.defines, ['I', 'U', 'v', 'E']);
+});
+
+const sqlHeader = "import { cell, action, sql, exec } from 'smaltnb';\n";
+
+test('a plain SQL cell is read as its SQL: name, row type, output, and the text with ${} references', () => {
+  const nb = parse(sqlHeader + "cell('byRegion', { lang: 'sql' });\nexport const byRegion = sql<{ region: string }>`\n  SELECT region FROM ${orders} -- a `tick`\n`;\nbyRegion;".replace('`tick`', '\\`tick\\`'));
+  assert.deepEqual(nb.cells[1]!.sql, {
+    kind: 'query', name: 'byRegion', exported: true, rowType: '{ region: string }',
+    text: '\n  SELECT region FROM ${orders} -- a `tick`\n', output: true,
+  });
+});
+
+test('sqlBody writes a plain SQL cell back exactly, escaping backticks', () => {
+  const src = sqlHeader + "cell('q', { lang: 'sql' });\nconst q = sql`SELECT '`' AS t, ${n}`;".replace("'`'", "'\\`'");
+  const nb = parse(src);
+  const view = nb.cells[1]!.sql!;
+  assert.equal(view.kind, 'query');
+  assert.equal(sqlBody(view), src.slice(src.indexOf('const q')));
+  assert.equal(sqlBody({ kind: 'script', statements: ['DELETE FROM t', 'INSERT INTO t SELECT * FROM ${x}'] }),
+    'await exec`DELETE FROM t`;\nawait exec`INSERT INTO t SELECT * FROM ${x}`;');
+});
+
+test('an action of only exec statements is a SQL script', () => {
+  const nb = parse(sqlHeader + "action('save', { lang: 'sql' });\nawait exec`DELETE FROM t`;\nawait exec`INSERT INTO t VALUES (1)`;");
+  assert.deepEqual(nb.cells[1]!.sql, { kind: 'script', statements: ['DELETE FROM t', 'INSERT INTO t VALUES (1)'] });
+});
+
+test('anything more than SQL keeps a cell TypeScript', () => {
+  const cases = [
+    "cell('q', { lang: 'sql' });\nconst q = sql`SELECT 1`;\nconsole.log(q);",        // extra code
+    "cell('q', { lang: 'sql' });\n// a comment\nconst q = sql`SELECT 1`;",              // a comment outside the SQL
+    "cell('q', { lang: 'sql' });\nconst other = sql`SELECT 1`;",                       // the result isn't named after the cell
+    "cell('q', { lang: 'sql' });\nlet q = sql`SELECT 1`;",                              // not const
+    "cell('q');\nconst q = sql`SELECT 1`;",                                              // not lang: 'sql'
+    "action('a', { lang: 'sql' });\nawait exec`DELETE FROM t`;\nconst n = 1;",          // an action with code
+    "cell('q', { lang: 'sql' });\nconst q = sql`SELECT 1`;\n// a note\ncell('z');",     // a comment before the next cell
+  ];
+  for (const c of cases) assert.equal(parse(sqlHeader + c).cells[1]!.sql, null, c);
+  const aliased = parse("import { cell, sql as q2 } from 'smaltnb';\ncell('q', { lang: 'sql' });\nconst q = q2`SELECT 1`;");
+  assert.equal(aliased.cells[1]!.sql, null, 'sql imported under another name');
 });

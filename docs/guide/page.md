@@ -5,9 +5,14 @@ opens a demo notebook over a small `orders` table and runs it.
 
 ## Using it
 
-- **Cells** are the notebook's `cell()` and `action()` sections, each in its own editor. TypeScript is highlighted, and
-  so is SQL inside `` sql`…` `` and `` exec`…` ``. Edit a cell and, after a short pause, the notebook reacts: cells that
-  read what changed run again, lazy and manual cells and actions go stale.
+- **Cells** are the notebook's `cell()` and `action()` sections, each in its own editor. Edit a cell and, after a short
+  pause, the notebook reacts: cells that read what changed run again, lazy and manual cells and actions go stale.
+- **SQL cells** show only their SQL. A query cell's result is named after the cell, and `${name}` (marked in the
+  editor) reads another cell's result. An action of SQL statements shows them as a script, one per `;`. What you type
+  is saved in the file in its TypeScript form, `` export const name = sql`…`; `` (see
+  [plain SQL cells](./format#plain-sql-cells)). **TS** on a SQL cell shows that TypeScript, and **SQL** goes back.
+  A cell that holds more than SQL shows as TypeScript.
+- **Source** shows the whole notebook as its `.nb.ts` file, editable; **Cells** goes back.
 - **Run** runs one cell (`Ctrl+Enter`; `Shift+Enter` runs it and moves to the next). **Run all** runs every cell;
   actions run only from their own Run button.
 - **Status** shows on each cell's edge and header: ok, stale, skipped, held, error, with the reason.
@@ -17,7 +22,7 @@ opens a demo notebook over a small `orders` table and runs it.
   large result stays cheap. **Download CSV** saves every row.
 - **Restart** stops a cell that never finishes, by replacing the kernel. The cells' results are lost and the database
   is kept.
-- **+ Cell** and **+ Action** add a cell at the end. **Open…** loads a `.nb.ts` file, **Download** saves the notebook
+- **+ SQL**, **+ Cell** and **+ Action** add a SQL cell, a TypeScript cell or an action at the end. **Open…** loads a `.nb.ts` file, **Download** saves the notebook
   as one, and **Demo** brings the demo back.
 
 The notebook you're working on is kept in this browser, and its database in the browser's private storage (OPFS); in

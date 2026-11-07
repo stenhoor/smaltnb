@@ -28,6 +28,31 @@ console.log(total);
 - **Output.** A cell that ends with an expression statement shows that expression as its output.
 - **Default export.** Reserved: it will be the notebook's typed factory, so cells can't `export default`.
 
+## Plain SQL cells
+
+A cell with `lang: 'sql'` whose code is only SQL is a *plain SQL cell*: the notebook page shows just its SQL. Two forms:
+
+```ts
+cell('byRegion', { lang: 'sql' });             // a query: its result is named after the cell
+export const byRegion = sql<{ region: string; revenue: number }>`
+  SELECT region, sum(revenue) AS revenue FROM ${orders} GROUP BY region`;
+byRegion;                                       // optional: show the result
+
+action('save totals', { lang: 'sql' });         // a script: an action of statements
+await exec`DELETE FROM region_totals`;
+await exec`INSERT INTO region_totals SELECT region, revenue FROM ${byRegion}`;
+```
+
+- The query's name is the cell's name; `export` and a row type (`sql<Row>`) are kept as written.
+- `${name}` reads another cell's result, as in any `` sql`…` ``.
+- The SQL is the template's text as written: a backslash is SQL's; only a backtick (and a `${` that isn't a
+  reference) is escaped, as `` \` `` and `\${`.
+- Anything else in the cell, between its `cell()` line and the next cell (a comment, another statement, `sql` imported
+  under another name), makes it a TypeScript cell, shown as such, so nothing is hidden or lost.
+
+`parseNotebook` gives a plain SQL cell's content as `cell.sql` (`{ kind: 'query', name, exported, rowType, text, output }`
+or `{ kind: 'script', statements }`), and `sqlBody(view)` writes the code back.
+
 ## Options
 
 Options are read from the source without running the notebook, so they must be literals.

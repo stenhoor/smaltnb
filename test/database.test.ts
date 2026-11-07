@@ -249,3 +249,8 @@ cell('n'); export const n = (await db.query('SELECT count(*) FROM orders')).rows
   assert.equal(rt.value('n'), 4);
   assert.deepEqual((await rt.rows('raw', 3, 5)).rows, [[4, 'north']]);
 });
+
+test('sql takes the template text as written: backslashes belong to SQL; only escaped backticks and ${ are unescaped', () => {
+  const q = sql`SELECT * FROM t WHERE a LIKE 'x\_%' AND b = '\`' AND c = '\${n}' AND d = ${1}`;
+  assert.equal(q.text, "SELECT * FROM t WHERE a LIKE 'x\\_%' AND b = '`' AND c = '${n}' AND d = ?1");
+});

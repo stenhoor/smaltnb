@@ -11,6 +11,7 @@ smaltdb have matching files; keep the working rules the same.
 npm install            # prepare builds dist/ (tsc -p tsconfig.build.json)
 npm run typecheck      # tsc --noEmit, strict, over src/, test/ and examples/ (CI runs it)
 npm test               # build, then node --test test/*.test.ts against the built package
+npm run docs:dev       # the docs site (VitePress) with live reload; docs:build fails on dead links
 ```
 
 ## Repo map
@@ -19,6 +20,9 @@ npm test               # build, then node --test test/*.test.ts against the buil
   imports as `./name.js`.
 - `examples/*.nb.ts` are notebooks. They must typecheck as written: that is the format's promise.
 - `test/*.test.ts` import the package by name, so they test the built output.
+- `docs/` is the product site, deployed from `main` to GitHub Pages (`.github/workflows/docs.yml`) at `/smaltnb/` until
+  it has a domain (`DOCS_BASE` in `docs/.vitepress/config.ts`). `docs/DESIGN.md` holds the owner's decisions.
+  `docs/brand/` is copied from smalt-brand: don't edit it here.
 - `dist/` and `node_modules/` are generated: do not edit or commit them.
 
 ## Rules for code here
@@ -30,6 +34,9 @@ npm test               # build, then node --test test/*.test.ts against the buil
   internals.
 - UI that smaltui or smaltbi could use belongs in smaltkit, not here (DESIGN.md decision 20).
 - No app names in user-facing text.
+- **Keep the documents current.** A PR that changes behaviour updates the pages that describe it in the same PR:
+  `docs/guide/` (the format reference, notebooks, status), `docs/DESIGN.md` when a decision changes, and the README.
+  Mark what isn't built yet as *planned*.
 
 ## Working rules for sessions
 

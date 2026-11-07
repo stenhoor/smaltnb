@@ -10,7 +10,7 @@ notebooks import. TypeScript, SQL ([smaltql](https://github.com/stenhoor/smaltql
 Inspired by marimo, Jupyter and JupyterLab.
 
 > **Status: early development.** Milestone 0 is in: the notebook format and its graph. Nothing runs notebooks yet.
-> See [docs/DESIGN.md](docs/DESIGN.md).
+> See the [site](https://stenhoor.github.io/smaltnb/) and [docs/DESIGN.md](docs/DESIGN.md).
 
 ```ts
 import { cell, sql } from 'smaltnb';
@@ -45,6 +45,10 @@ npm run typecheck    # src/, test/, and examples/*.nb.ts, which must typecheck a
 
 ```bash
 npm test             # builds, then node --test against the built package
+```
+
+```bash
+npm run docs:dev     # the site, with live reload
 ```
 
 ## License

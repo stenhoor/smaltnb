@@ -12,7 +12,7 @@ const ENGINE = 'https://smaltdb.dev'
 
 export default defineConfig({
   title: 'smaltnb',
-  description: 'TypeScript notebooks for smaltdb.',
+  description: 'Reactive notebooks for smaltdb.',
   base,
   cleanUrls: true,
   srcExclude: ['brand/**'],

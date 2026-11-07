@@ -7,7 +7,7 @@
 
 <a href="https://smaltworks.dev/stability"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/work-in-progress-on-dark.svg"><img alt="Work in progress. Come build with us." src="docs/brand/work-in-progress.svg" height="56"></picture></a>
 
-**Small. Alternative. Notebooks.** TypeScript notebooks for smaltdb.
+**Small. Alternative. Notebooks.** Reactive notebooks for smaltdb.
 
 [Documentation](https://stenhoor.github.io/smaltnb/) · [smaltworks.dev](https://smaltworks.dev)
 

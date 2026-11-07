@@ -15,6 +15,8 @@ export default defineConfig({
   description: 'Reactive notebooks for smaltdb.',
   base,
   cleanUrls: true,
+  // The notebook page is deployed beside the site at /app/ (.github/workflows/docs.yml), not built by VitePress.
+  ignoreDeadLinks: [/^\/app\//],
   srcExclude: ['brand/**'],
   lastUpdated: false,
   // docs/brand holds the logo files; serve them from the site root.
@@ -48,7 +50,7 @@ export default defineConfig({
     logo: { light: '/lockup.svg', dark: '/lockup-on-dark.svg', alt: 'smaltnb' },
     siteTitle: false,
     nav: [
-      { text: 'Demo', link: 'https://stenhoor.github.io/smaltnb/app/' },
+      { text: 'Demo', link: '/app/', target: '_self' },
       { text: 'Guide', link: '/guide/notebooks' },
       { text: 'Format', link: '/guide/format' },
       { text: 'Status', link: '/guide/status' },

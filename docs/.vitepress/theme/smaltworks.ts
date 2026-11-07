@@ -8,7 +8,7 @@ export const FAMILY = [
   { text: 'smaltql · SQL', link: 'https://stenhoor.github.io/smaltql/' },
   { text: 'smaltdf · dataframes', link: 'https://stenhoor.github.io/smaltdf/' },
   { text: 'smaltts · typed API', link: `${WORKS}/products/smaltts` },
-  { text: 'smaltui · SQL console', link: 'https://stenhoor.github.io/smaltui/' },
+  { text: 'smaltui · query workbench', link: 'https://stenhoor.github.io/smaltui/' },
   { text: 'smaltbi · reports', link: 'https://stenhoor.github.io/smaltbi/' },
   { text: 'smaltnb · notebooks', link: 'https://stenhoor.github.io/smaltnb/' },
 ]
@@ -25,10 +25,13 @@ export function smaltworksMenu() {
   }
 }
 
-/** The footer of every product site. `base` is the site's VitePress base ('/' or '/smaltql/'). */
-export function smaltworksFooter(base = '/') {
+/**
+ * The footer of every product site. `base` is the site's VitePress base ('/' or '/smaltql/'); `dir` is the folder of
+ * the badge files in the site's public directory, if not its root ('badges/').
+ */
+export function smaltworksFooter(base = '/', dir = '') {
   const img = (file: string, cls: string) =>
-    `<img class="${cls}" src="${base}${file}" alt="A smaltworks project" height="28">`
+    `<img class="${cls}" src="${base}${dir}${file}" alt="A smaltworks project" height="28">`
   return {
     message: `<a href="${WORKS}/">${img('a-smaltworks-project.svg', 'sw-light')}${img('a-smaltworks-project-on-dark.svg', 'sw-dark')}</a>`,
     copyright: 'MIT License',

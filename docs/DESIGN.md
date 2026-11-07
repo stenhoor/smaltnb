@@ -12,7 +12,7 @@ not aim to be a port of any of them.
 
 | # | Topic | Decision |
 |---|---|---|
-| 1 | Positioning | "Reactive notebooks for smaltdb." Credit once: "Inspired by marimo, Jupyter and JupyterLab." |
+| 1 | Positioning | "Reactive notebooks in TypeScript for smaltdb." (owner, 2026-11-07: one wording everywhere). Credit once: "Inspired by marimo, Jupyter and JupyterLab." |
 | 2 | File format | A notebook is a `.nb.ts` file, a valid TypeScript module that `tsc` checks as written. It is the only source format. Markdown is an export (`smaltnb export --md`), not a second source. |
 | 3 | Cells | `cell(name, options?)` statements split ordinary top-level code into cells. Code before the first cell is the setup cell: imports only. Options are typed: `lang`, `run`, `when`, `store`, `live`, `hide`. |
 | 4 | Graph | Edges come from the top-level names each cell defines and reads, found with the TypeScript compiler. A name is defined in one cell (TypeScript enforces this) and assigned only in that cell. The file reads top to bottom: a cell may not read a name defined further down, except a function declaration. |

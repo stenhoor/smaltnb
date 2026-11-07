@@ -3,7 +3,7 @@
 Copied from [`stenhoor/smalt-brand`](https://github.com/stenhoor/smalt-brand) `logos/smaltnb/` (commit `a0b6a76`).
 Don't edit them here: change them in smalt-brand and copy them again.
 
-**Small. Alternative. Notebooks.** Reactive notebooks for smaltdb. smaltnb is a user tool, so its colour is the
+**Small. Alternative. Notebooks.** Reactive notebooks in TypeScript for smaltdb. smaltnb is a user tool, so its colour is the
 user-tool layer's deep cerulean (`#0E7FAE`; text `#0B6A91`, on dark `#5CBDE8`). `alt` stays smalt `#003399`. The mark
 is the Pencil.
 

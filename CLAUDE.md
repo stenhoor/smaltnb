@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-smaltnb is reactive TypeScript notebooks for [smaltdb](https://github.com/stenhoor/smaltdb). The design and the owner's
+smaltnb is reactive notebooks in TypeScript for [smaltdb](https://github.com/stenhoor/smaltdb). The design and the owner's
 decisions are in [docs/DESIGN.md](docs/DESIGN.md): read it before changing behaviour. Several Claude Code sessions work
 on the smalt repos in parallel and cannot see each other: this file is the shared starting point. smaltkit, smaltui and
 smaltdb have matching files; keep the working rules the same.

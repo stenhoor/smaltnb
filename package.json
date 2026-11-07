@@ -1,7 +1,7 @@
 {
   "name": "smaltnb",
   "version": "0.0.1",
-  "description": "Reactive TypeScript notebooks for smaltdb",
+  "description": "Reactive notebooks in TypeScript for smaltdb",
   "license": "MIT",
   "type": "module",
   "repository": {

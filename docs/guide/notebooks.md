@@ -1,8 +1,8 @@
 # Notebooks
 
 ::: warning In development
-The format, its graph and [the runtime](./runtime) are in ([Status](./status)): notebooks in plain TypeScript run,
-with run modes and guards. There's no notebook page, database or SQL yet. Parts marked *planned* come later.
+The format, its graph, [the runtime](./runtime) and [the kernel](./runtime#the-kernel) are in ([Status](./status)):
+notebooks in plain TypeScript run, with run modes and guards, in a worker off the page. There's no notebook page, database or SQL yet. Parts marked *planned* come later.
 :::
 
 smaltnb is a reactive notebook for [smaltdb](https://smaltdb.dev), for data work in the browser: loading and cleaning

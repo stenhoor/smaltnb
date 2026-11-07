@@ -9,8 +9,8 @@ notebooks import. TypeScript, SQL ([smaltql](https://github.com/stenhoor/smaltql
 
 Inspired by marimo, Jupyter and JupyterLab.
 
-> **Status: early development.** The notebook format, its graph and the runtime are in: notebooks in plain TypeScript
-> run, with run modes and guards. No notebook page, database or SQL yet.
+> **Status: early development.** The notebook format, its graph, the runtime and the kernel worker are in: notebooks
+> in plain TypeScript run, with run modes and guards, off the page. No notebook page, database or SQL yet.
 > See the [site](https://stenhoor.github.io/smaltnb/) and [docs/DESIGN.md](docs/DESIGN.md).
 
 ```ts
@@ -32,6 +32,8 @@ export const clean = raw.filter(col('qty').gt(0));
 | `smaltnb/format` | `parseNotebook(source, ts)`: splits a `.nb.ts` file into cells, reads their options, and finds the names each defines, reads and exports, with diagnostics (a cell reading a name defined further down, a name assigned outside its cell, bad options, …). |
 | `smaltnb/graph` | `buildGraph(notebook)`: edges, run order, `upstream` / `downstream`, `exportClosure` (what importing an export needs) and `propagate` (what reruns and what goes stale after a change). |
 | `smaltnb/runtime` | `createRuntime(source, { ts, importModule })`: runs cells as async functions, keeps each cell's state (`ok`, `stale`, `skipped`, `error`, …) and output, and reacts to `update(source)`, `run(ids)` and `runAll()` by the notebook's rules. |
+| `smaltnb/kernel` | `serveKernel(self, { ts, importModule })`: the runtime in a Web Worker, over messages. `loadTypeScript()` loads the compiler there at run time. |
+| `smaltnb/client` | `KernelClient`: the page's side. `open`, `update`, `run`, `runAll`, and `restart()` to stop a run that never finishes. |
 
 The TypeScript compiler is passed in (`ts`), not bundled: a page loads it at run time, Node imports `typescript`.
 

@@ -3,6 +3,7 @@
 // the runtime nor the TypeScript compiler.
 
 import type { CellView, NotebookView, Reply, Request } from './kernel.js';
+import type { Rows } from './database.js';
 
 /** What the client needs of a worker: a browser `Worker`, or an adapter around another kind. */
 export interface WorkerLike {
@@ -25,7 +26,7 @@ export class KernelClient {
   #options: KernelClientOptions;
   #worker!: WorkerLike;
   #nextId = 1;
-  #pending = new Map<number, { resolve: () => void; reject: (err: Error) => void }>();
+  #pending = new Map<number, { resolve: (result: unknown) => void; reject: (err: Error) => void }>();
   #states = new Map<string, CellView>();
   #notebook: NotebookView | null = null;
   #source: string | null = null;
@@ -73,6 +74,11 @@ export class KernelClient {
     return this.#send({ type: 'runAll', ...(options.actions && { actions: true }) });
   }
 
+  /** A window of a cell's collected output (or of one of its collected names), for a grid that scrolls. */
+  async rows(cell: string, offset: number, limit: number, name?: string): Promise<Rows> {
+    return (await this.#send({ type: 'rows', cell, offset, limit, ...(name !== undefined && { name }) })) as Rows;
+  }
+
   /**
    * Stops whatever is running by replacing the worker, then opens the notebook again in the new one. Every cell's
    * result is lost and its state goes back to idle; requests that were waiting fail.
@@ -109,9 +115,9 @@ export class KernelClient {
     });
   }
 
-  #send(body: Body<Request>): Promise<void> {
+  #send(body: Body<Request>): Promise<any> {
     const id = this.#nextId++;
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });
       this.#worker.postMessage({ ...body, id } as Request);
     });
@@ -139,7 +145,7 @@ export class KernelClient {
         const p = this.#pending.get(reply.id);
         if (!p) return;
         this.#pending.delete(reply.id);
-        if (reply.type === 'done') p.resolve();
+        if (reply.type === 'done') p.resolve(reply.result);
         else p.reject(new Error(reply.message));
         return;
       }

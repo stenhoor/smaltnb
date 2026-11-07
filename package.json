@@ -46,8 +46,9 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepare": "npm run build",
-    "typecheck": "tsc -p . && tsc -p examples",
-    "test": "npm run build && node --test test/*.test.ts",
+    "deps": "node scripts/fetch-packed.mjs",
+    "typecheck": "node scripts/fetch-packed.mjs --check && tsc -p . && tsc -p examples",
+    "test": "npm run build && node scripts/fetch-packed.mjs --check && node --test test/*.test.ts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

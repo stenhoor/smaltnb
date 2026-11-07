@@ -1,8 +1,8 @@
 # Notebooks
 
 ::: warning In development
-The format, its graph, [the runtime](./runtime) and [the kernel](./runtime#the-kernel) are in ([Status](./status)):
-notebooks in plain TypeScript run, with run modes and guards, in a worker off the page. There's no notebook page, database or SQL yet. Parts marked *planned* come later.
+The format, its graph, [the runtime](./runtime), [the kernel](./runtime#the-kernel) and [the database](./runtime#the-database)
+are in ([Status](./status)): notebooks run, with SQL and dataframes, run modes and guards, in a worker off the page. There's no notebook page, database or SQL yet. Parts marked *planned* come later.
 :::
 
 smaltnb is a reactive notebook for [smaltdb](https://smaltdb.dev), for data work in the browser: loading and cleaning
@@ -44,8 +44,8 @@ await deleteFrom('orders_clean').run(db);
 await clean.insertInto(db, 'orders_clean');
 ```
 
-`md`, `sql`, `param`, `ui`, `chart` and `db` are *planned*; `cell()` and `action()` exist today, and
-[examples/regional.nb.ts](../../examples/regional.nb.ts) is a notebook in plain TypeScript that typechecks now.
+`cell()`, `action()`, `sql`, `exec` and `db` exist today; `md`, `param`, `ui` and `chart` are *planned*.
+[examples/shop.nb.ts](../../examples/shop.nb.ts) is a notebook with SQL and smaltdf that typechecks and runs now.
 
 ## Reactive
 
@@ -78,13 +78,15 @@ results, marked stale.
 A cell that changes data (an `INSERT`, a `CREATE TABLE`, a smaltdf `insertInto`) is an action. Whether a cell writes is
 decided by the plans it sends to the engine, whatever language they come from. An action tracks its inputs but never
 reruns on its own: it runs when you click Run, or in a scheduled run. After it writes a table, the cells that read the
-table go stale. `action()` marks it in the file; an unmarked write is held until you run it. *Planned.*
+table go stale (*planned*: needs plans to report the tables they write). `action()` marks it in the file; an unmarked
+write is held until you run it.
 
 ## SQL and dataframes
 
 `` sql`…` `` is a query; `${}` inside it passes a value as a parameter, or another cell's result as a table. smaltdf
 reads a SQL result as a frame, and SQL reads a frame's result, because both build plans for the same engine. Results
-are collected once per run, in memory by default, and the page only ever holds the rows on screen. *Planned.*
+are collected once per run, in memory by default, and the page only ever holds the rows on screen. See
+[the database](./runtime#the-database).
 
 ## Notebooks as libraries
 

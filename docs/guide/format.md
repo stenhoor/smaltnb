@@ -49,7 +49,8 @@ An action has no `run`, `store` or `live`: it never reruns on its own.
 property named like a top-level value is not a read, `{ raw }` is, and a name used only as a type (`o: Order`,
 `implements Shape`) is a type read, which matters to the compiler but not to a run.
 
-For each cell it gives `defines`, `exports`, `reads`, `typeReads`, the guard's reads, its options and its spans.
+For each cell it gives `defines` (and `typeDefines`, the names that exist only as types), `exports`, `reads`,
+`typeReads`, the guard's reads, its options and its spans.
 
 ## The graph
 
@@ -61,7 +62,7 @@ or whose guard reads it (`guard`).
 | `graph.order` | The run order: file order whenever the notebook reads top to bottom. |
 | `upstream(graph, ids)`, `downstream(graph, ids)` | What the cells depend on, or what depends on them, in run order. |
 | `exportClosure(graph, names)` | The cells that importing these exports needs, and names that aren't exported. |
-| `propagate(graph, changed)` | Which cells run and which go stale after a change. |
+| `propagate(graph, changed, { run })` | Which cells run and which go stale after a change. Cells in `run` were run on request: they run whatever their mode. |
 
 ## Rules and diagnostics
 

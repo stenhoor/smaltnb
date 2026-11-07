@@ -9,7 +9,8 @@ notebooks import. TypeScript, SQL ([smaltql](https://github.com/stenhoor/smaltql
 
 Inspired by marimo, Jupyter and JupyterLab.
 
-> **Status: early development.** Milestone 0 is in: the notebook format and its graph. Nothing runs notebooks yet.
+> **Status: early development.** The notebook format, its graph and the runtime are in: notebooks in plain TypeScript
+> run, with run modes and guards. No notebook page, database or SQL yet.
 > See the [site](https://stenhoor.github.io/smaltnb/) and [docs/DESIGN.md](docs/DESIGN.md).
 
 ```ts
@@ -30,6 +31,7 @@ export const clean = raw.filter(col('qty').gt(0));
 | `smaltnb` | `cell()` and `action()`, the statements a notebook is written with, plus everything below. |
 | `smaltnb/format` | `parseNotebook(source, ts)`: splits a `.nb.ts` file into cells, reads their options, and finds the names each defines, reads and exports, with diagnostics (a cell reading a name defined further down, a name assigned outside its cell, bad options, …). |
 | `smaltnb/graph` | `buildGraph(notebook)`: edges, run order, `upstream` / `downstream`, `exportClosure` (what importing an export needs) and `propagate` (what reruns and what goes stale after a change). |
+| `smaltnb/runtime` | `createRuntime(source, { ts, importModule })`: runs cells as async functions, keeps each cell's state (`ok`, `stale`, `skipped`, `error`, …) and output, and reacts to `update(source)`, `run(ids)` and `runAll()` by the notebook's rules. |
 
 The TypeScript compiler is passed in (`ts`), not bundled: a page loads it at run time, Node imports `typescript`.
 

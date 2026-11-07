@@ -136,6 +136,11 @@ export function exportClosure(graph: Graph, names: string[]): ExportClosure {
   return { cells: graph.order.filter((id) => needed.has(id)), missing };
 }
 
+export interface PropagateOptions {
+  /** Cells run on request (a Run button): they run whatever their run mode, and count as run for what follows. */
+  run?: string[];
+}
+
 export interface Propagation {
   /** Cells to run now, in run order. */
   run: string[];
@@ -149,14 +154,16 @@ export interface Propagation {
  * `manual` cell, or an action, goes stale, and so does everything downstream of a stale cell. Guards are evaluated
  * when cells run, not here.
  */
-export function propagate(graph: Graph, changed: string[]): Propagation {
-  const affected = new Set([...changed, ...downstream(graph, changed)]);
+export function propagate(graph: Graph, changed: string[], options: PropagateOptions = {}): Propagation {
+  const forced = new Set(options.run ?? []);
+  const start = [...new Set([...changed, ...forced])];
+  const affected = new Set([...start, ...downstream(graph, start)]);
   const state = new Map<string, 'run' | 'stale'>();
   for (const id of graph.order) {
     if (!affected.has(id)) continue;
     const cell = graph.byId.get(id)!;
     const inputs = graph.edges.filter((e) => e.to === id && affected.has(e.from)).map((e) => state.get(e.from));
-    const ready = cell.kind !== 'action' && cell.run === 'auto' && inputs.every((s) => s === 'run');
+    const ready = forced.has(id) || cell.kind !== 'action' && cell.run === 'auto' && inputs.every((s) => s === 'run');
     state.set(id, ready ? 'run' : 'stale');
   }
   const pick = (s: 'run' | 'stale') => graph.order.filter((id) => state.get(id) === s);

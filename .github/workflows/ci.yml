@@ -25,6 +25,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm run deps
+      # Playwright first: any npm install removes what npm run deps installs.
       - run: npm install --no-save playwright && npx playwright install --with-deps chromium
+      - run: npm run deps
       - run: npm run e2e     # builds the notebook page and drives it in headless Chromium

@@ -2,6 +2,7 @@ import { defineConfig } from 'vitepress'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { smaltLight, smaltDark } from './theme/shiki'
+import { smaltworksMenu, smaltworksFooter } from './theme/smaltworks'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const REPO = 'https://github.com/stenhoor/smaltnb'
@@ -11,7 +12,7 @@ const ENGINE = 'https://smaltdb.dev'
 
 export default defineConfig({
   title: 'smaltnb',
-  description: 'Reactive notebooks for smaltdb.',
+  description: 'TypeScript notebooks for smaltdb.',
   base,
   cleanUrls: true,
   srcExclude: ['brand/**'],
@@ -50,15 +51,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/notebooks' },
       { text: 'Format', link: '/guide/format' },
       { text: 'Status', link: '/guide/status' },
-      {
-        text: 'smaltdb',
-        items: [
-          { text: 'The engine', link: `${ENGINE}/reference/engine/` },
-          { text: 'smaltql: SQL', link: 'https://stenhoor.github.io/smaltql/' },
-          { text: 'smaltdf: dataframes', link: 'https://stenhoor.github.io/smaltdf/' },
-          { text: 'Roadmap', link: `${ENGINE}/ROADMAP` },
-        ],
-      },
+      smaltworksMenu(),
     ],
     sidebar: [
       {
@@ -78,6 +71,6 @@ export default defineConfig({
     socialLinks: [{ icon: 'github', link: REPO }],
     search: { provider: 'local' },
     outline: { level: [2, 3] },
-    footer: { message: 'MIT License', copyright: 'smaltnb' },
+    footer: smaltworksFooter(base),
   },
 })

@@ -35,11 +35,15 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "typecheck": "tsc -p . && tsc -p examples",
-    "test": "npm run build && node --test test/*.test.ts"
+    "test": "npm run build && node --test test/*.test.ts",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "~5.9.0"
+    "typescript": "~5.9.0",
+    "vitepress": "^1.6.4"
   },
   "peerDependencies": {
     "typescript": ">=5.5.0"

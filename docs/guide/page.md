@@ -1,6 +1,6 @@
 # The notebook page
 
-**[Open a notebook](https://stenhoor.github.io/smaltnb/app/)**: it runs entirely in your browser. The first time, it
+**[Open a notebook](/app/){target="_self"}**: it runs entirely in your browser. The first time, it
 opens a demo notebook over a small `orders` table and runs it.
 
 ## Using it

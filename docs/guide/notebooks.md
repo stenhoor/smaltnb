@@ -1,7 +1,7 @@
 # Notebooks
 
 ::: tip Try it
-[Open a notebook](https://stenhoor.github.io/smaltnb/app/): [the notebook page](./page) runs in your browser.
+[Open a notebook](/app/){target="_self"}: [the notebook page](./page) runs in your browser.
 Cells run reactively with SQL and dataframes, in a worker off the page. Parts marked *planned* come later
 ([Status](./status)).
 :::

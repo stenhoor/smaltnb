@@ -39,8 +39,10 @@ npm run app          # builds the page into dist-app/ and serves it at http://lo
 ```
 
 ```bash
-npm run e2e          # builds it and drives it in headless Chromium (needs Playwright)
+npm run e2e          # builds it and drives it in headless Chromium
 ```
+
+`npm run e2e` needs Playwright, installed outside the project and found through `NODE_PATH`; see `test/e2e/app.mjs`.
 
 The page and its two workers are bundled with esbuild: the page, the kernel worker (cell code, with the TypeScript
 compiler shipped beside it in `vendor/`), and the database's engine worker (smaltdb with smaltql and smaltdf). The

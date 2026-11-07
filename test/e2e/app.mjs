@@ -1,5 +1,9 @@
-// The notebook page in headless Chromium: builds the app, serves it, and drives it. Needs Playwright (not a project
-// dependency): `npm install --no-save playwright && npx playwright install chromium`, then `npm run e2e`.
+// The notebook page in headless Chromium: builds the app, serves it, and drives it. Needs Playwright, which isn't a
+// project dependency: install it outside the project and point NODE_PATH at it (an npm install in the project would
+// remove the packages `npm run deps` installs):
+//
+//   npm install --prefix ~/.pw playwright && ~/.pw/node_modules/.bin/playwright install chromium
+//   NODE_PATH=~/.pw/node_modules npm run e2e
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';

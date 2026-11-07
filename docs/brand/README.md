@@ -14,5 +14,5 @@ is the Pencil.
 | `pencil-mark.svg`, `pencil-mark-on-dark.svg` | The mark alone: the home page image. |
 | `app-icon.svg` | App and PWA icons, avatars. |
 | `favicon-32.svg`, `favicon-16.svg` | Browser tabs. |
-| `work-in-progress.svg`, `-on-dark` | The stage badge, from smalt-brand `badges/` (commit `8396e75`). Site and README. |
-| `a-smaltworks-project.svg`, `-on-dark` | The family badge, from smalt-brand `badges/` (commit `8396e75`). Site foot and README. |
+| `work-in-progress.svg`, `-on-dark` | The stage badge, from smalt-brand `badges/` (commit `caa7984`). Site and README. |
+| `a-smaltworks-project.svg`, `-on-dark` | The family badge, from smalt-brand `badges/` (commit `caa7984`). Site foot and README. |

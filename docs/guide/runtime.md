@@ -1,7 +1,8 @@
 # The runtime
 
 `smaltnb/runtime` runs a notebook. It is the core the [kernel](#the-kernel) serves to the page and, later, headless
-runs use. It has no database or page of its own yet: those come next in [milestone 1](./status).
+runs use. Given a database, it runs SQL and smaltdf cells ([below](#the-database)). The notebook page comes next in
+[milestone 1](./status).
 
 ```ts
 import ts from 'typescript';
@@ -38,6 +39,7 @@ The setup cell loads its imports with `importModule`. `import type` and type-onl
 | `ok` | Ran, and its result is current. |
 | `stale` | Its result is out of date: it was edited, an input changed, or an input isn't current. It keeps its last result and waits. |
 | `skipped` | Its guard (or the guard of a cell it reads) was false. It keeps its last result. |
+| `held` | It tried to write to the database without being an action or run on request. It keeps its last result; run it to let it write. |
 | `error` | It threw, or the notebook has an error in it. `error` has the message. |
 
 `reason` says why a cell is stale, skipped or failed: `edited, not run`, `an input changed`,
@@ -91,5 +93,51 @@ await kernel.restart();   // stop a run that never finishes
 - **The TypeScript compiler** is loaded in the worker at run time: `loadTypeScript()` fetches `lib/typescript.js`
   (from jsDelivr by default, or the app's own copy) and evaluates it, with no bundler.
 
-*Planned in milestone 1:* `db`, `sql` and `exec`; cells that write, decided by the plans they send; collected results;
-the notebook page.
+## The database
+
+Give the runtime a smaltdb database with smaltql and smaltdf registered, and smaltdf's `table` to read collected
+results as frames:
+
+```ts
+import { Database, registerLanguage } from 'smaltdb/engine';   // or open() from smaltql, through a worker
+import { sqlLanguage } from 'smaltql';
+import { dfLanguage, table } from '@smaltdb/df';
+
+registerLanguage(sqlLanguage);
+registerLanguage(dfLanguage);
+const rt = createRuntime(source, { ts, database: Database.openMemory(), frame: table, importModule });
+```
+
+In the kernel, `serveKernel(self, { …, database: () => open('notebook'), frame: table })` opens it once.
+
+Cells import `sql`, `exec` and `db` from `smaltnb`:
+
+```ts
+cell('orders', { lang: 'df' });
+export const orders = table('orders').filter(col('qty').ge(1));
+
+cell('byRegion', { lang: 'sql' });
+export const byRegion = sql`SELECT region, sum(qty * price) AS revenue FROM ${orders} GROUP BY region`;
+
+action('save');
+await exec`INSERT INTO region_totals SELECT * FROM ${byRegion}`;
+```
+
+- **Collected results.** When a cell finishes, each `sql` query and smaltdf frame it defines (and its output) is
+  collected into a `TEMP` table named for the cell, `nb_<cell>_<name>`. The rows move inside the engine, not through
+  the kernel. Later cells read the collected result: smaltdf as a frame over the table, SQL through `${}`. An edit
+  re-collects, and a result that's gone has its table dropped. A cell with `live: true` isn't collected.
+- **`${}` in SQL** is a bound parameter for a value, the table of a collected result, or an identifier with
+  `sql.id(name)`. Values are never spliced into the text, and a live (uncollected) frame is refused with a reason.
+- **`exec`** runs a statement at once and resolves to `{ rows }`, the rows it changed.
+- **Writes are checked by plan kind**, whatever the language: a plan whose kind isn't a query is a write, and so is
+  SQL the engine reports as not read-only (a `TEMP` table too). In a cell that isn't an action, a write is `held`
+  until you run the cell; an action writes when it runs. `db` passed to smaltdf (`frame.insertInto(db, 'orders')`) is
+  checked the same way.
+- **Outputs** that are collected results reach the page as a table with its first rows; `rows(cell, offset, limit)`
+  (and `KernelClient.rows`) fetch more, for a grid that scrolls. The page never holds a whole result.
+
+*Not yet:* through smaltdb's worker client, SQL text can't be classified until smaltdb reports whether a statement is
+read-only there (in process it does), so until then `exec` counts as a write and a query as a read. Cells that read a
+table an action wrote don't go stale yet: that needs plans to say which tables they read and write. Both are listed
+in the [design](../DESIGN#needed-from-other-repositories). *Planned in milestone 1:* `md`, `param`, the notebook page.

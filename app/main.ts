@@ -8,6 +8,7 @@ import { exportRows, Grid, type GridRow } from 'smaltkit/grid';
 import { download, fileName, pickFile, toast } from 'smaltkit/dom';
 import { KernelClient } from '../src/client.js';
 import type { CellView, NotebookView } from '../src/kernel.js';
+import type { ParamInfo } from '../src/params.js';
 import { sqlBody, type SqlView } from '../src/format.js';
 import { sqlCellLanguage } from './sql-language.js';
 
@@ -18,6 +19,7 @@ const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)
 const cellsEl = $('#cells');
 const diagEl = $('#diagnostics');
 const nameEl = $<HTMLInputElement>('#name');
+const paramsEl = $<HTMLFormElement>('#params');
 
 interface CellUi {
   id: string;
@@ -47,7 +49,7 @@ let pending: ReturnType<typeof setTimeout> | null = null;
 
 const kernel = new KernelClient(
   () => new Worker(new URL('./kernel-worker.js', import.meta.url), { type: 'module', name: 'kernel' }),
-  { onState: (s) => showState(s), onNotebook: (nb) => onNotebook(nb) },
+  { onState: (s) => showState(s), onNotebook: (nb) => onNotebook(nb), onParams: (p) => showParams(p) },
 );
 
 /** Splits the source at each cell's first line: the text before the first cell is setup. */
@@ -78,6 +80,47 @@ function onNotebook(nb: NotebookView) {
   chunks = next;
   if (!same && !sourceView) render();
   showDiagnostics(nb);
+}
+
+/** The params bar: one control per parameter. A change reruns what reads it and goes into the page's URL. */
+function showParams(params: ParamInfo[]) {
+  paramsEl.hidden = params.length === 0;
+  const title = document.createElement('span');
+  title.className = 'params-title';
+  title.textContent = 'Parameters';
+  paramsEl.replaceChildren(title, ...params.map((p) => {
+    const label = document.createElement('label');
+    label.append(p.name);
+    let input: HTMLInputElement | HTMLSelectElement;
+    if (p.kind === 'choice') {
+      input = document.createElement('select');
+      for (const c of p.choices ?? []) input.append(new Option(c, c, false, c === p.value));
+    } else {
+      input = document.createElement('input');
+      input.type = p.kind === 'number' ? 'number' : p.kind === 'isoDate' ? 'date' : p.kind === 'bool' ? 'checkbox' : 'text';
+      if (p.kind === 'bool') input.checked = p.value === 'true';
+      else input.value = p.value;
+      if (p.kind === 'number') input.step = 'any';
+    }
+    input.name = p.name;
+    input.title = p.error ?? `Default: ${p.default}`;
+    if (p.error) input.classList.add('bad');
+    input.addEventListener('change', () => {
+      const value = input instanceof HTMLInputElement && input.type === 'checkbox' ? String(input.checked) : input.value;
+      void setParam(p.name, value === p.default ? null : value);
+    });
+    label.append(input);
+    return label;
+  }));
+}
+
+async function setParam(name: string, value: string | null) {
+  const url = new URL(location.href);
+  if (value === null) url.searchParams.delete(name);
+  else url.searchParams.set(name, value);
+  history.replaceState(null, '', url);
+  await flush();
+  await kernel.setParams({ [name]: value }).catch((err: Error) => toast(err.message, 'error'));
 }
 
 function showDiagnostics(nb: NotebookView) {
@@ -321,7 +364,7 @@ function save() {
   }
 }
 
-async function load(src: string, name: string) {
+async function load(src: string, name: string, params: Record<string, string> = {}) {
   source = src.endsWith('\n') ? src : src + '\n';
   nameEl.value = name;
   fitName();
@@ -331,7 +374,7 @@ async function load(src: string, name: string) {
   sourceButton.textContent = 'Source';
   showTs.clear();
   save();
-  await kernel.open(source, `${name}.nb.ts`);
+  await kernel.open(source, `${name}.nb.ts`, params);
   await kernel.runAll().catch((err: Error) => toast(err.message, 'error'));
 }
 
@@ -371,15 +414,23 @@ sourceButton.addEventListener('click', async () => {
 });
 $('#open').addEventListener('click', async () => {
   const file = await pickFile('.ts,.nb.ts,text/plain');
-  if (file) await load(await file.text(), file.name.replace(/(\.nb)?\.ts$/, ''));
+  if (!file) return;
+  clearUrlParams();
+  await load(await file.text(), file.name.replace(/(\.nb)?\.ts$/, ''));
 });
 $('#save').addEventListener('click', async () => {
   await flush();
   download(`${fileName(nameEl.value || 'notebook')}.nb.ts`, source, 'text/typescript');
 });
 $('#demo').addEventListener('click', async () => {
+  clearUrlParams();
   await load(await (await fetch('demo.nb.ts')).text(), 'shop');
 });
+
+/** Parameter values belong to the notebook they were set on: another notebook starts from its defaults. */
+function clearUrlParams() {
+  history.replaceState(null, '', location.pathname);
+}
 const fitName = () => (nameEl.size = Math.min(30, Math.max(4, nameEl.value.length)));
 nameEl.addEventListener('input', fitName);
 nameEl.addEventListener('change', save);
@@ -394,7 +445,8 @@ async function start() {
     // Storage blocked.
   }
   if (!src) src = await (await fetch('demo.nb.ts')).text();
-  await load(src, name);
+  // ?minQty=5 in the page's address sets that parameter, so a link can share values.
+  await load(src, name, Object.fromEntries(new URLSearchParams(location.search)));
 }
 
 void start();

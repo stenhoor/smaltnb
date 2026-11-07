@@ -13,6 +13,8 @@ opens a demo notebook over a small `orders` table and runs it.
   [plain SQL cells](./format#plain-sql-cells)). **TS** on a SQL cell shows that TypeScript, and **SQL** goes back.
   A cell that holds more than SQL shows as TypeScript.
 - **Source** shows the whole notebook as its `.nb.ts` file, editable; **Cells** goes back.
+- **Parameters** declared with `param()` show in a bar under the header. A change reruns what reads them and goes into
+  the page's address (`?minQty=5`), so a link opens the notebook with those values.
 - **Run** runs one cell (`Ctrl+Enter`; `Shift+Enter` runs it and moves to the next). **Run all** runs every cell;
   actions run only from their own Run button.
 - **Status** shows on each cell's edge and header: ok, stale, skipped, held, error, with the reason.
@@ -30,7 +32,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-These are planned: notebooks in git, the graph view, `md`, `param`, `ui` and charts, type pinning, and completion from
+These are planned: notebooks in git, the graph view, `md`, `ui` and charts, type pinning, and completion from
 a TypeScript language service. See [Status](./status).
 
 ## Run it locally

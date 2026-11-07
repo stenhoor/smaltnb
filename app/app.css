@@ -56,3 +56,10 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px max(16px, env(safe-area-
 .view-toggle[aria-pressed="true"] { color: var(--primary); border-color: var(--primary); }
 #source[aria-pressed="true"] { color: var(--primary); border-color: var(--primary); }
 .source-editor { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.params { position: sticky; top: 49px; z-index: 9; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 7px max(16px, env(safe-area-inset-left)); background: var(--code-bg); border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text-3); }
+.params-title { font: 600 10px var(--font-brand); letter-spacing: 0.07em; text-transform: uppercase; }
+.params label { display: inline-flex; align-items: center; gap: 6px; }
+.params input, .params select { font: 12.5px var(--font-mono); color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; }
+.params input[type="number"] { width: 9ch; }
+.params input[type="checkbox"] { accent-color: var(--primary); }
+.params .bad { border-color: var(--danger); outline: 1px solid var(--danger); }

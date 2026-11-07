@@ -1,8 +1,17 @@
-# smaltnb
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/lockup-on-dark.svg">
+    <img alt="smaltnb" src="docs/brand/lockup.svg" width="320">
+  </picture>
+</h1>
 
-**Small. Alternative. Notebooks.**
+<a href="https://smaltworks.dev/stability"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/work-in-progress-on-dark.svg"><img alt="Work in progress. Come build with us." src="docs/brand/work-in-progress.svg" height="56"></picture></a>
 
-Reactive notebooks for [smaltdb](https://github.com/stenhoor/smaltdb). A notebook is a TypeScript file: cells are
+**Small. Alternative. Notebooks.** TypeScript notebooks for smaltdb.
+
+[Documentation](https://stenhoor.github.io/smaltnb/) · [smaltworks.dev](https://smaltworks.dev)
+
+Notebooks are reactive, and run on [smaltdb](https://github.com/stenhoor/smaltdb). A notebook is a TypeScript file: cells are
 top-level code, the graph comes from the names they define and read, and `export` makes a notebook a library other
 notebooks import. TypeScript, SQL ([smaltql](https://github.com/stenhoor/smaltql)) and dataframes
 ([smaltdf](https://github.com/stenhoor/smaltdf)) are first-class.
@@ -61,4 +70,6 @@ npm run docs:dev     # the site, with live reload
 
 ## License
 
-MIT
+<a href="https://smaltworks.dev"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/a-smaltworks-project-on-dark.svg"><img alt="A smaltworks project" src="docs/brand/a-smaltworks-project.svg" height="28"></picture></a>
+
+MIT License.

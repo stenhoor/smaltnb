@@ -2,9 +2,9 @@
 layout: home
 
 hero:
-  name: 'sm<span class="alt">alt</span><span class="suffix">nb</span>'
+  name: 'sm<span class="alt">alt</span><span class="suffix tool">nb</span>'
   text: Small. Alternative. Notebooks.
-  tagline: Reactive notebooks for smaltdb.
+  tagline: TypeScript notebooks for smaltdb.
   image:
     light: /pencil-mark.svg
     dark: /pencil-mark-on-dark.svg

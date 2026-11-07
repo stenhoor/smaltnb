@@ -53,6 +53,36 @@ export interface Cell {
   typeReads: string[];
   /** The cell's last expression statement, shown as its output; null when the cell does not end with one. */
   output: Span | null;
+  /**
+   * A plain SQL cell (`lang: 'sql'` holding only SQL), as its SQL: what an editor shows instead of the TypeScript.
+   * Null when the cell holds anything more. `sqlBody(view)` writes the code back.
+   */
+  sql: SqlView | null;
+}
+
+/**
+ * A plain SQL cell's content.
+ * - `query`: a cell `name` that is `[export] const name = sql<Row>`…`;`, optionally followed by `name;` (show it).
+ * - `script`: an action whose code is only `await exec`…`;` statements.
+ * `text` and `statements` are the SQL as written, with `${…}` references kept.
+ */
+export type SqlView =
+  | { kind: 'query'; name: string; exported: boolean; rowType: string | null; text: string; output: boolean }
+  | { kind: 'script'; statements: string[] };
+
+/** Escapes SQL for a template literal: only a backtick needs it (`${…}` stays a reference). */
+export function escapeTemplate(sql: string): string {
+  return sql.replace(/`/g, '\\`');
+}
+
+/** A plain SQL cell's code, after its cell() or action() line. */
+export function sqlBody(view: SqlView): string {
+  if (view.kind === 'query') {
+    const type = view.rowType ? `<${view.rowType}>` : '';
+    return `${view.exported ? 'export ' : ''}const ${view.name} = sql${type}\`${escapeTemplate(view.text)}\`;`
+      + (view.output ? `\n${view.name};` : '');
+  }
+  return view.statements.map((st) => `await exec\`${escapeTemplate(st)}\`;`).join('\n');
 }
 
 export type Severity = 'error' | 'warning';
@@ -113,6 +143,8 @@ export function parseNotebook(source: string, ts: TypeScript, options: ParseOpti
 
   // The local names `cell` and `action` are imported under (`import { cell as c } from 'smaltnb'` works too).
   const markers = new Map<string, 'cell' | 'action'>();
+  // sql and exec imported from smaltnb under their own names: what a plain SQL cell is written with.
+  const sqlTags = new Set<string>();
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== MODULE) continue;
     const bindings = st.importClause?.namedBindings;
@@ -120,6 +152,7 @@ export function parseNotebook(source: string, ts: TypeScript, options: ParseOpti
     for (const el of bindings.elements) {
       const imported = (el.propertyName ?? el.name).text;
       if (imported === 'cell' || imported === 'action') markers.set(el.name.text, imported);
+      if ((imported === 'sql' || imported === 'exec') && el.name.text === imported) sqlTags.add(imported);
     }
   }
   const markerOf = (st: TS.Statement): { kind: 'cell' | 'action'; call: TS.CallExpression } | null => {
@@ -146,7 +179,7 @@ export function parseNotebook(source: string, ts: TypeScript, options: ParseOpti
     let id = 'setup';
     const cell: Cell = {
       id, kind: g.kind, lang: 'ts', run: 'auto', store: 'memory', live: false, hide: false, when: null,
-      span: span(0, 0), body: null, defines: [], typeDefines: [], exports: [], reads: [], typeReads: [], output: null,
+      span: span(0, 0), body: null, defines: [], typeDefines: [], exports: [], reads: [], typeReads: [], output: null, sql: null,
     };
     if (g.call) {
       const [nameArg, optsArg, ...rest] = g.call.arguments;
@@ -168,6 +201,8 @@ export function parseNotebook(source: string, ts: TypeScript, options: ParseOpti
     if (g.statements.length) cell.body = span(g.statements[0]!.getStart(sf), last!.getEnd());
     const tail = g.statements[g.statements.length - 1];
     if (tail && ts.isExpressionStatement(tail)) cell.output = nodeSpan(tail.expression);
+    const next = groups[index + 1]?.marker;
+    cell.sql = sqlViewOf(g.kind, g.statements, cell, g.marker ? g.marker.getEnd() : 0, next ? next.getStart(sf) : source.length);
     cells.push(cell);
 
     function readOptions(arg: TS.Expression, allowed: string[]) {
@@ -352,6 +387,39 @@ export function parseNotebook(source: string, ts: TypeScript, options: ParseOpti
   });
 
   return { fileName, cells, diagnostics };
+
+  /** The cell as plain SQL, if its code is exactly what `sqlBody` writes for it (so nothing is lost writing it back). */
+  function sqlViewOf(kind: CellKind, sts: TS.Statement[], cell: Cell, from: number, to: number): SqlView | null {
+    if (cell.lang !== 'sql' || kind === 'setup') return null;
+    const sqlOf = (e: TS.Expression, tag: 'sql' | 'exec') => {
+      if (!ts.isTaggedTemplateExpression(e) || !ts.isIdentifier(e.tag) || e.tag.text !== tag || !sqlTags.has(tag)) return null;
+      return { text: e.template.getText(sf).slice(1, -1).replace(/\\`/g, '`'), type: e.typeArguments?.[0]?.getText(sf) ?? null, args: e.typeArguments?.length ?? 0 };
+    };
+    let view: SqlView | null = null;
+    if (kind === 'cell') {
+      const [decl, show, ...rest] = sts;
+      if (!decl || rest.length || !ts.isVariableStatement(decl) || !(decl.declarationList.flags & ts.NodeFlags.Const)) return null;
+      const d = decl.declarationList.declarations;
+      if (d.length !== 1 || !ts.isIdentifier(d[0]!.name) || d[0]!.name.text !== cell.id || !d[0]!.initializer || d[0]!.type) return null;
+      const q = sqlOf(d[0]!.initializer, 'sql');
+      if (!q || q.args > 1) return null;
+      if (show && !(ts.isExpressionStatement(show) && ts.isIdentifier(show.expression) && show.expression.text === cell.id)) return null;
+      const exported = (ts.getModifiers(decl) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      view = { kind: 'query', name: cell.id, exported, rowType: q.type, text: q.text, output: !!show };
+    } else {
+      const statements: string[] = [];
+      for (const st of sts) {
+        const e = ts.isExpressionStatement(st) && ts.isAwaitExpression(st.expression) ? sqlOf(st.expression.expression, 'exec') : null;
+        if (!e || e.args) return null;
+        statements.push(e.text);
+      }
+      view = { kind: 'script', statements };
+    }
+    // Everything from the cell() line to the next cell must be what sqlBody writes: a comment or extra code anywhere in
+    // it keeps the cell TypeScript, since the SQL view would hide it.
+    const strip = (t: string) => t.replace(/\s+/g, '');
+    return strip(source.slice(from, to)) === strip(sqlBody(view)) ? view : null;
+  }
 }
 
 /** A type checker over the one file, with no lib and no module resolution: enough to resolve the file's own names. */

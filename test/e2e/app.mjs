@@ -92,9 +92,45 @@ try {
       .some((td) => Number(td.textContent) > 1400), id, { timeout: 15000 });
   });
 
+  await step('a plain SQL cell shows only its SQL; TS shows the TypeScript it is saved as', async () => {
+    const sqlOnly = await cellText('byRegion');
+    assert.match(sqlOnly, /^SELECT region, sum\(revenue\) AS revenue FROM \$\{orders\}/);
+    assert.doesNotMatch(sqlOnly, /cell\(|export const|sql</);
+    await page.click('[data-cell="byRegion"] .view-toggle');
+    assert.match(await cellText('byRegion'), /^cell\('byRegion', \{ lang: 'sql' \}\);\nexport const byRegion = sql<\{ region: string; revenue: number \}>`/);
+    await page.click('[data-cell="byRegion"] .view-toggle');
+    assert.match(await cellText('byRegion'), /^SELECT region/);
+  });
+
+  await step('editing the SQL reruns the cell, and the file keeps its TypeScript form', async () => {
+    await setCell('byRegion', (await cellText('byRegion')).replace('ORDER BY revenue DESC', 'ORDER BY revenue ASC'));
+    await page.waitForFunction(() => {
+      const cells = [...document.querySelectorAll('[data-cell="byRegion"] tbody tr[data-row] td[data-col="1"]')].map((td) => Number(td.textContent));
+      return cells.length > 1 && cells[0] <= cells[cells.length - 1];
+    }, null, { timeout: 30000 });
+    await page.click('#source');
+    const file = await page.evaluate(() => document.querySelector('.source-editor textarea').value);
+    assert.match(file, /export const byRegion = sql<\{ region: string; revenue: number \}>`SELECT region, sum\(revenue\) AS revenue FROM \$\{orders\} GROUP BY region ORDER BY revenue ASC`;\nbyRegion;/);
+    await page.click('#source');
+    await page.waitForSelector('[data-cell="byRegion"]');
+  });
+
+  await step('+ SQL adds a SQL cell, named after its result, that runs', async () => {
+    const before = await page.evaluate(() => document.querySelectorAll('.cell').length);
+    await page.click('#add-sql');
+    await page.waitForFunction((n) => document.querySelectorAll('.cell').length === n + 1, before);
+    const id = await page.evaluate(() => [...document.querySelectorAll('.cell')].at(-1).dataset.cell);
+    assert.match(id, /^query\d+$/);
+    assert.equal(await cellText(id), 'SELECT 1 AS one');
+    await until(id, 'ok');
+    assert.deepEqual(await gridRows(id), [['1']]);
+  });
+
+  // Last: its Run all also starts the cell that never finishes, which keeps the kernel busy.
   await step('restart stops a cell that never finishes; the cells can run again', async () => {
+    const before = await page.evaluate(() => document.querySelectorAll('.cell').length);
     await page.click('#add-cell');
-    await page.waitForFunction(() => document.querySelectorAll('.cell').length === 7);
+    await page.waitForFunction((n) => document.querySelectorAll('.cell').length === n + 1, before);
     const id = await page.evaluate(() => [...document.querySelectorAll('.cell')].at(-1).dataset.cell);
     await setCell(id, `cell('${id}', { run: 'manual' });\nwhile (true) {}`);
     await page.waitForFunction((id) => document.querySelector(`[data-cell="${id}"] .actions button`), id);

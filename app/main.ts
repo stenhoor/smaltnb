@@ -1,10 +1,15 @@
 // The notebook page: one editor per cell over the notebook's source, run by the kernel worker. The source is the
 // .nb.ts text; each cell's editor holds the slice from its cell() line to the next, so joining them gives the file back.
+// A plain SQL cell shows only its SQL, and is written back in its TypeScript form (sqlBody); a toggle shows the
+// TypeScript, and Source shows the whole file.
 import { Editor, typescriptLanguage } from 'smaltkit/editor';
+import { splitStatements } from 'smaltkit/sql';
 import { exportRows, Grid, type GridRow } from 'smaltkit/grid';
 import { download, fileName, pickFile, toast } from 'smaltkit/dom';
 import { KernelClient } from '../src/client.js';
 import type { CellView, NotebookView } from '../src/kernel.js';
+import { sqlBody, type SqlView } from '../src/format.js';
+import { sqlCellLanguage } from './sql-language.js';
 
 const STORE = 'smaltnb:source';
 const NAME = 'smaltnb:name';
@@ -25,10 +30,17 @@ interface CellUi {
   grid: Grid | null;
   /** The output last drawn, so a state change that keeps it doesn't redraw the grid. */
   drawn: string;
+  /** The cell's text in the source, from its editor: the TypeScript as typed, or the SQL in its TypeScript form. */
+  text(): string;
 }
 
 let source = '';
-let chunks: { id: string; text: string }[] = [];
+let chunks: { id: string; text: string; start: number }[] = [];
+/** Plain SQL cells shown as TypeScript, by id. */
+const showTs = new Set<string>();
+/** The whole file in one editor. */
+let sourceView = false;
+let sourceEditor: Editor | null = null;
 let ui = new Map<string, CellUi>();
 let notebook: NotebookView | null = null;
 let pending: ReturnType<typeof setTimeout> | null = null;
@@ -39,17 +51,32 @@ const kernel = new KernelClient(
 );
 
 /** Splits the source at each cell's first line: the text before the first cell is setup. */
-function split(src: string, nb: NotebookView): { id: string; text: string }[] {
+function split(src: string, nb: NotebookView): { id: string; text: string; start: number }[] {
   const starts = nb.cells.map((c) => (c.kind === 'setup' ? 0 : src.lastIndexOf('\n', c.span.start - 1) + 1));
-  return nb.cells.map((c, i) => ({ id: c.id, text: src.slice(starts[i]!, i + 1 < starts.length ? starts[i + 1]! : src.length) }));
+  return nb.cells.map((c, i) => ({ id: c.id, start: starts[i]!, text: src.slice(starts[i]!, i + 1 < starts.length ? starts[i + 1]! : src.length) }));
+}
+
+/** What a plain SQL cell's editor shows: the query, or an action's statements, each ending in a semicolon. */
+function sqlText(view: SqlView): string {
+  return view.kind === 'query' ? view.text.trim() : view.statements.map((st) => `${st.trim()};`).join('\n\n');
+}
+
+/** A plain SQL cell's view with the SQL from its editor. */
+function withSql(view: SqlView, text: string): SqlView {
+  return view.kind === 'query'
+    ? { ...view, text }
+    : { kind: 'script', statements: splitStatements(text).map((st) => st.sql) };
 }
 
 function onNotebook(nb: NotebookView) {
+  const before = notebook;
   notebook = nb;
   const next = split(source, nb);
-  const same = next.length === chunks.length && next.every((c, i) => c.id === chunks[i]!.id);
+  // Redraw when the cells change, or when a cell starts or stops being plain SQL.
+  const same = next.length === chunks.length && next.every((c, i) => c.id === chunks[i]!.id
+    && !!before?.cells[i]?.sql === !!nb.cells[i]?.sql);
   chunks = next;
-  if (!same) render();
+  if (!same && !sourceView) render();
   showDiagnostics(nb);
 }
 
@@ -65,6 +92,8 @@ function showDiagnostics(nb: NotebookView) {
 
 /** Draws every cell. Keeps the focused cell's editor focused. */
 function render() {
+  if (sourceView) return renderSource();
+  sourceEditor = null;
   const focusedId = [...ui.values()].find((c) => c.root.contains(document.activeElement))?.id;
   for (const c of ui.values()) c.grid?.destroy();
   ui = new Map();
@@ -88,12 +117,17 @@ function render() {
     const actions = document.createElement('span');
     actions.className = 'actions';
     head.append(title, kind, status, reason, actions);
+    if (meta.sql) head.append(toggle(chunk.id));
     const edHost = document.createElement('div');
     edHost.className = 'cell-editor';
+    // A plain SQL cell shows its SQL; its cell() line is kept as written and the rest is written back from the SQL.
+    const view = meta.sql && !showTs.has(chunk.id) ? meta.sql : null;
+    const head0 = view && meta.body ? chunk.text.slice(0, meta.body.start - chunk.start).trimEnd() : chunk.text.trimEnd();
+    if (view) root.classList.add('sql-view');
     const editor = new Editor(edHost, {
-      language: typescriptLanguage,
-      value: chunk.text.replace(/\n+$/, ''),
-      label: `Cell ${chunk.id}`,
+      language: view ? sqlCellLanguage : typescriptLanguage,
+      value: view ? sqlText(view) : chunk.text.replace(/\n+$/, ''),
+      label: view ? `SQL of cell ${chunk.id}` : `Cell ${chunk.id}`,
       onChange: () => edited(),
       keys: {
         'Mod+Enter': () => void runCells([chunk.id]),
@@ -104,7 +138,10 @@ function render() {
     output.className = 'output';
     root.append(head, edHost, output);
     cellsEl.append(root);
-    const c: CellUi = { id: chunk.id, root, editor, status, reason, actions, output, grid: null, drawn: '' };
+    const text = view
+      ? () => { const body = sqlBody(withSql(view, editor.value)); return body ? `${head0}\n${body}` : head0; }
+      : () => editor.value;
+    const c: CellUi = { id: chunk.id, root, editor, status, reason, actions, output, grid: null, drawn: '', text };
     ui.set(chunk.id, c);
     sizeEditor(c);
     const state = kernel.state(chunk.id);
@@ -125,11 +162,38 @@ function focusNext(id: string) {
 
 /** The source from the editors: each cell's text, separated by a blank line. */
 function currentSource(): string {
-  return [...ui.values()].map((c) => c.editor.value.replace(/\n+$/, '')).join('\n\n') + '\n';
+  if (sourceView && sourceEditor) return sourceEditor.value.replace(/\n*$/, '\n');
+  return [...ui.values()].map((c) => c.text().replace(/\n+$/, '')).join('\n\n') + '\n';
+}
+
+/** The TS / SQL switch on a plain SQL cell. */
+function toggle(id: string): HTMLButtonElement {
+  const showing = showTs.has(id);
+  const b = button(showing ? 'SQL' : 'TS', showing ? 'Show the SQL' : 'Show the TypeScript this cell is saved as', async () => {
+    await flush();
+    if (showing) showTs.delete(id);
+    else showTs.add(id);
+    render();
+  });
+  b.className = 'view-toggle';
+  b.setAttribute('aria-pressed', String(showing));
+  return b;
+}
+
+/** The whole .nb.ts file in one editor. */
+function renderSource() {
+  for (const c of ui.values()) c.grid?.destroy();
+  ui = new Map();
+  const host = document.createElement('div');
+  host.className = 'cell-editor source-editor';
+  sourceEditor = new Editor(host, { language: typescriptLanguage, value: source.replace(/\n+$/, ''), label: 'Notebook source', onChange: () => edited() });
+  host.style.height = `${Math.max(10, source.split('\n').length) * 20 + 18}px`;
+  cellsEl.replaceChildren(host);
 }
 
 function edited() {
   for (const c of ui.values()) sizeEditor(c);
+  if (sourceEditor) sourceEditor.host.style.height = `${Math.max(10, sourceEditor.value.split('\n').length) * 20 + 18}px`;
   if (pending) clearTimeout(pending);
   pending = setTimeout(() => void send(), 400);
 }
@@ -262,16 +326,25 @@ async function load(src: string, name: string) {
   nameEl.value = name;
   fitName();
   chunks = [];
+  sourceView = false;
+  sourceButton.setAttribute('aria-pressed', 'false');
+  sourceButton.textContent = 'Source';
+  showTs.clear();
   save();
   await kernel.open(source, `${name}.nb.ts`);
   await kernel.runAll().catch((err: Error) => toast(err.message, 'error'));
 }
 
-function addCell(kind: 'cell' | 'action') {
+function addCell(kind: 'cell' | 'action' | 'sql') {
+  const prefix = kind === 'sql' ? 'query' : kind;
   const ids = new Set(chunks.map((c) => c.id));
   let n = chunks.length;
-  while (ids.has(`${kind}${n}`)) n++;
-  source = currentSource() + `\n${kind}('${kind}${n}');\n`;
+  while (ids.has(`${prefix}${n}`)) n++;
+  const id = `${prefix}${n}`;
+  const added = kind === 'sql'
+    ? `cell('${id}', { lang: 'sql' });\n${sqlBody({ kind: 'query', name: id, exported: true, rowType: null, text: 'SELECT 1 AS one', output: true })}`
+    : `${kind}('${id}');`;
+  source = currentSource() + `\n${added}\n`;
   save();
   void kernel.update(source);
 }
@@ -286,6 +359,16 @@ $('#restart').addEventListener('click', async () => {
 });
 $('#add-cell').addEventListener('click', () => addCell('cell'));
 $('#add-action').addEventListener('click', () => addCell('action'));
+$('#add-sql').addEventListener('click', () => addCell('sql'));
+const sourceButton = $<HTMLButtonElement>('#source');
+sourceButton.addEventListener('click', async () => {
+  await flush();
+  sourceView = !sourceView;
+  sourceButton.setAttribute('aria-pressed', String(sourceView));
+  sourceButton.textContent = sourceView ? 'Cells' : 'Source';
+  if (!sourceView && notebook) chunks = split(source, notebook);
+  render();
+});
 $('#open').addEventListener('click', async () => {
   const file = await pickFile('.ts,.nb.ts,text/plain');
   if (file) await load(await file.text(), file.name.replace(/(\.nb)?\.ts$/, ''));

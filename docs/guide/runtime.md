@@ -127,6 +127,8 @@ await exec`INSERT INTO region_totals SELECT * FROM ${byRegion}`;
   collected into a `TEMP` table named for the cell, `nb_<cell>_<name>`. The rows move inside the engine, not through
   the kernel. Later cells read the collected result: smaltdf as a frame over the table, SQL through `${}`. An edit
   re-collects, and a result that's gone has its table dropped. A cell with `live: true` isn't collected.
+- **The SQL is the template's text as written** (its raw text): a backslash belongs to SQL (`LIKE 'a\_%'`); only
+  `` \` `` and `\${` are unescaped.
 - **`${}` in SQL** is a bound parameter for a value, the table of a collected result, or an identifier with
   `sql.id(name)`. Values are never spliced into the text, and a live (uncollected) frame is refused with a reason.
 - **`exec`** runs a statement at once and resolves to `{ rows }`, the rows it changed.

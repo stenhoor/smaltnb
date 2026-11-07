@@ -16,6 +16,6 @@ export const byRegion = sql<{ region: string; revenue: number }>`
   SELECT region, sum(revenue) AS revenue FROM ${orders} GROUP BY region ORDER BY revenue DESC`;
 byRegion;
 
-action('save totals');
+action('save totals', { lang: 'sql' });
 await exec`DELETE FROM region_totals`;
 await exec`INSERT INTO region_totals SELECT region, revenue FROM ${byRegion}`;

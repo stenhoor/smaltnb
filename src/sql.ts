@@ -83,8 +83,15 @@ export function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+/**
+ * The template's text as written: raw, so a backslash is SQL's (`LIKE 'a\\_%'`), not an escape; only \\` and \\${ are
+ * unescaped, as the template needs them.
+ */
+const rawText = (s: string) => s.replace(/\\(`|\$(?=\{))/g, '$1');
+
 function build(strings: TemplateStringsArray, values: unknown[]): { text: string; params: SqlParam[] } {
-  let text = strings[0]!;
+  const parts = strings.raw.map(rawText);
+  let text = parts[0]!;
   const params: SqlParam[] = [];
   values.forEach((v, i) => {
     let part: string;
@@ -103,7 +110,7 @@ function build(strings: TemplateStringsArray, values: unknown[]): { text: string
     } else {
       throw new TypeError(`sql: \${} number ${i + 1} can't be a parameter (${typeof v}).`);
     }
-    text += part + strings[i + 1]!;
+    text += part + parts[i + 1]!;
   });
   return { text, params };
 }

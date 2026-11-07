@@ -214,3 +214,38 @@ test('examples/shop.nb.ts runs: smaltdf, then SQL over the collected frame, then
   assert.equal(rt.state('save totals')!.status, 'ok');
   assert.deepEqual(db.query('SELECT * FROM region_totals').rows, [['north', 79.5], ['south', 7.25]]);
 });
+
+test('with the worker client, whose array rows come back as the array itself, queries and rows still work', async () => {
+  // A stand-in for smaltdb's client Database: async, no queryPlanAsync, and 'array' results that are arrays.
+  const engine = shop();
+  const client = {
+    catalog: () => engine.catalog,
+    async query(text: string, params: unknown[] = []) {
+      const r = engine.query(text, params as never);
+      return Object.assign(r.rows.map((row) => [...row]), { columns: r.columns, columnTypes: r.columnTypes ?? [] });
+    },
+    async exec(text: string, params: unknown[] = []) {
+      if (engine.isScript(text)) { engine.exec(text, params as never); return { changes: 0, lastInsertRowid: 0 }; }
+      return engine.run(text, params as never);
+    },
+    async prepare(text: string) {
+      const st = engine.prepare(text);
+      return { columns: st.columns, columnTypes: st.columnTypes, readonly: st.readonly, finalize: async () => {} };
+    },
+    async preparePlan(plan: unknown) {
+      const st = engine.preparePlan(plan as never);
+      return { columns: st.columns, columnTypes: st.columnTypes, finalize: async () => {} };
+    },
+    queryPlan: (stmt: unknown, params?: unknown, options?: unknown) => engine.queryPlanAsync(stmt as never, params as never, options as never),
+  };
+  const rt = createRuntime(header + `cell('raw'); export const raw = sql\`SELECT id, region FROM orders ORDER BY id\`;
+raw;
+cell('n'); export const n = (await db.query('SELECT count(*) FROM orders')).rows[0]![0];`, {
+    ts, database: client, importModule: async () => df,
+  });
+  await rt.runAll();
+  assert.equal(rt.state('raw')!.status, 'ok', rt.state('raw')!.reason ?? '');
+  assert.deepEqual(rt.state('raw')!.outputTable!.preview.rows[0], [1, 'north']);
+  assert.equal(rt.value('n'), 4);
+  assert.deepEqual((await rt.rows('raw', 3, 5)).rows, [[4, 'north']]);
+});

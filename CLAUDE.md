@@ -12,6 +12,8 @@ npm install            # prepare builds dist/ (tsc -p tsconfig.build.json)
 npm run deps           # smaltdb, smaltql, smaltdf pinned in packed.json (scripts/fetch-packed.mjs); again after each npm install
 npm run typecheck      # tsc --noEmit, strict, over src/, test/ and examples/ (CI runs it)
 npm test               # build, then node --test test/*.test.ts against the built package
+npm run app            # build the notebook page (scripts/build-app.mjs, esbuild) and serve it on :8090
+npm run e2e            # build it and drive it in headless Chromium (Playwright, installed with --no-save)
 npm run docs:dev       # the docs site (VitePress) with live reload; docs:build fails on dead links
 ```
 
@@ -19,6 +21,8 @@ npm run docs:dev       # the docs site (VitePress) with live reload; docs:build 
 
 - `src/` holds the modules (strict TypeScript), each a subpath export, re-exported from `src/index.ts`. Keep relative
   imports as `./name.js`.
+- `app/` is the notebook page: the page, the kernel worker and the database worker, bundled by `scripts/build-app.mjs`
+  (the only bundled code; `src/` stays bundler-free). The Docs workflow deploys it at `/smaltnb/app/`.
 - `examples/*.nb.ts` are notebooks. They must typecheck as written: that is the format's promise.
 - `test/*.test.ts` import the package by name, so they test the built output.
 - `docs/` is the product site, deployed from `main` to GitHub Pages (`.github/workflows/docs.yml`) at `/smaltnb/` until

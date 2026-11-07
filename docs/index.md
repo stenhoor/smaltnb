@@ -11,6 +11,9 @@ hero:
     alt: smaltnb
   actions:
     - theme: brand
+      text: Open a notebook
+      link: https://stenhoor.github.io/smaltnb/app/
+    - theme: alt
       text: Notebooks
       link: /guide/notebooks
     - theme: alt

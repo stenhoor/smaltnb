@@ -47,6 +47,7 @@ export default defineConfig({
     logo: { light: '/lockup.svg', dark: '/lockup-on-dark.svg', alt: 'smaltnb' },
     siteTitle: false,
     nav: [
+      { text: 'Open a notebook', link: 'https://stenhoor.github.io/smaltnb/app/' },
       { text: 'Guide', link: '/guide/notebooks' },
       { text: 'Format', link: '/guide/format' },
       { text: 'Status', link: '/guide/status' },
@@ -65,6 +66,7 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Notebooks', link: '/guide/notebooks' },
+          { text: 'The notebook page', link: '/guide/page' },
           { text: 'The notebook format', link: '/guide/format' },
           { text: 'The runtime', link: '/guide/runtime' },
           { text: 'Status', link: '/guide/status' },

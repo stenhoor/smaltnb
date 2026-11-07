@@ -16,3 +16,15 @@ jobs:
       - run: npm run deps    # smaltdb, smaltql and smaltdf, pinned in packed.json until they are on npm
       - run: npm run typecheck
       - run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run deps
+      - run: npm install --no-save playwright && npx playwright install --with-deps chromium
+      - run: npm run e2e     # builds the notebook page and drives it in headless Chromium

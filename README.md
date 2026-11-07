@@ -9,9 +9,9 @@ notebooks import. TypeScript, SQL ([smaltql](https://github.com/stenhoor/smaltql
 
 Inspired by marimo, Jupyter and JupyterLab.
 
-> **Status: early development.** The notebook format, its graph, the runtime, the kernel worker and the database are
-> in: notebooks run, with SQL and smaltdf cells, run modes and guards, off the page. No notebook page yet.
-> See the [site](https://stenhoor.github.io/smaltnb/) and [docs/DESIGN.md](docs/DESIGN.md).
+> **Status: early development.** [Open a notebook](https://stenhoor.github.io/smaltnb/app/): the notebook page runs in
+> your browser, with SQL and smaltdf cells, run modes, guards and held writes. See the
+> [site](https://stenhoor.github.io/smaltnb/) and [docs/DESIGN.md](docs/DESIGN.md).
 
 ```ts
 import { cell, sql } from 'smaltnb';
@@ -53,6 +53,14 @@ npm run typecheck    # src/, test/, and examples/*.nb.ts, which must typecheck a
 
 ```bash
 npm test             # builds, then node --test against the built package
+```
+
+```bash
+npm run app          # the notebook page, built and served at http://localhost:8090/
+```
+
+```bash
+npm run e2e          # the page in headless Chromium (needs Playwright)
 ```
 
 ```bash

@@ -1,0 +1,317 @@
+// The notebook page: one editor per cell over the notebook's source, run by the kernel worker. The source is the
+// .nb.ts text; each cell's editor holds the slice from its cell() line to the next, so joining them gives the file back.
+import { Editor, typescriptLanguage } from 'smaltkit/editor';
+import { exportRows, Grid, type GridRow } from 'smaltkit/grid';
+import { download, fileName, pickFile, toast } from 'smaltkit/dom';
+import { KernelClient } from '../src/client.js';
+import type { CellView, NotebookView } from '../src/kernel.js';
+
+const STORE = 'smaltnb:source';
+const NAME = 'smaltnb:name';
+
+const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
+const cellsEl = $('#cells');
+const diagEl = $('#diagnostics');
+const nameEl = $<HTMLInputElement>('#name');
+
+interface CellUi {
+  id: string;
+  root: HTMLElement;
+  editor: Editor;
+  status: HTMLElement;
+  reason: HTMLElement;
+  actions: HTMLElement;
+  output: HTMLElement;
+  grid: Grid | null;
+  /** The output last drawn, so a state change that keeps it doesn't redraw the grid. */
+  drawn: string;
+}
+
+let source = '';
+let chunks: { id: string; text: string }[] = [];
+let ui = new Map<string, CellUi>();
+let notebook: NotebookView | null = null;
+let pending: ReturnType<typeof setTimeout> | null = null;
+
+const kernel = new KernelClient(
+  () => new Worker(new URL('./kernel-worker.js', import.meta.url), { type: 'module', name: 'kernel' }),
+  { onState: (s) => showState(s), onNotebook: (nb) => onNotebook(nb) },
+);
+
+/** Splits the source at each cell's first line: the text before the first cell is setup. */
+function split(src: string, nb: NotebookView): { id: string; text: string }[] {
+  const starts = nb.cells.map((c) => (c.kind === 'setup' ? 0 : src.lastIndexOf('\n', c.span.start - 1) + 1));
+  return nb.cells.map((c, i) => ({ id: c.id, text: src.slice(starts[i]!, i + 1 < starts.length ? starts[i + 1]! : src.length) }));
+}
+
+function onNotebook(nb: NotebookView) {
+  notebook = nb;
+  const next = split(source, nb);
+  const same = next.length === chunks.length && next.every((c, i) => c.id === chunks[i]!.id);
+  chunks = next;
+  if (!same) render();
+  showDiagnostics(nb);
+}
+
+function showDiagnostics(nb: NotebookView) {
+  diagEl.replaceChildren(...nb.diagnostics.map((d) => {
+    const li = document.createElement('li');
+    li.className = d.severity;
+    li.textContent = `${d.cell ? `${d.cell}: ` : ''}${d.message}`;
+    return li;
+  }));
+  diagEl.hidden = nb.diagnostics.length === 0;
+}
+
+/** Draws every cell. Keeps the focused cell's editor focused. */
+function render() {
+  const focusedId = [...ui.values()].find((c) => c.root.contains(document.activeElement))?.id;
+  for (const c of ui.values()) c.grid?.destroy();
+  ui = new Map();
+  cellsEl.replaceChildren();
+  for (const [i, chunk] of chunks.entries()) {
+    const meta = notebook!.cells[i]!;
+    const root = document.createElement('section');
+    root.className = `cell kind-${meta.kind}`;
+    root.dataset.cell = chunk.id;
+    const head = document.createElement('header');
+    const title = document.createElement('span');
+    title.className = 'cell-name';
+    title.textContent = meta.kind === 'setup' ? 'setup' : chunk.id;
+    const kind = document.createElement('span');
+    kind.className = 'chip';
+    kind.textContent = meta.kind === 'action' ? 'action' : meta.kind === 'setup' ? 'imports' : meta.lang;
+    const status = document.createElement('span');
+    status.className = 'status';
+    const reason = document.createElement('span');
+    reason.className = 'reason';
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    head.append(title, kind, status, reason, actions);
+    const edHost = document.createElement('div');
+    edHost.className = 'cell-editor';
+    const editor = new Editor(edHost, {
+      language: typescriptLanguage,
+      value: chunk.text.replace(/\n+$/, ''),
+      label: `Cell ${chunk.id}`,
+      onChange: () => edited(),
+      keys: {
+        'Mod+Enter': () => void runCells([chunk.id]),
+        'Shift+Enter': () => { void runCells([chunk.id]); focusNext(chunk.id); },
+      },
+    });
+    const output = document.createElement('div');
+    output.className = 'output';
+    root.append(head, edHost, output);
+    cellsEl.append(root);
+    const c: CellUi = { id: chunk.id, root, editor, status, reason, actions, output, grid: null, drawn: '' };
+    ui.set(chunk.id, c);
+    sizeEditor(c);
+    const state = kernel.state(chunk.id);
+    if (state) showState(state);
+  }
+  if (focusedId) ui.get(focusedId)?.editor.focus();
+}
+
+function sizeEditor(c: CellUi) {
+  const lines = Math.max(1, c.editor.value.split('\n').length);
+  c.editor.host.style.height = `${lines * 20 + 18}px`;
+}
+
+function focusNext(id: string) {
+  const ids = [...ui.keys()];
+  ui.get(ids[ids.indexOf(id) + 1] ?? id)?.editor.focus();
+}
+
+/** The source from the editors: each cell's text, separated by a blank line. */
+function currentSource(): string {
+  return [...ui.values()].map((c) => c.editor.value.replace(/\n+$/, '')).join('\n\n') + '\n';
+}
+
+function edited() {
+  for (const c of ui.values()) sizeEditor(c);
+  if (pending) clearTimeout(pending);
+  pending = setTimeout(() => void send(), 400);
+}
+
+async function send() {
+  pending = null;
+  const next = currentSource();
+  if (next === source) return;
+  source = next;
+  save();
+  await kernel.update(source).catch((err: Error) => toast(err.message, 'error'));
+}
+
+async function flush() {
+  if (pending) {
+    clearTimeout(pending);
+    await send();
+  }
+}
+
+async function runCells(ids: string[], force = false) {
+  await flush();
+  await kernel.run(ids, { force }).catch((err: Error) => toast(err.message, 'error'));
+}
+
+const STATUS_TEXT: Record<CellView['status'], string> = {
+  idle: 'not run', running: 'running', ok: 'ok', stale: 'stale', skipped: 'skipped', held: 'held', error: 'error',
+};
+
+function button(label: string, title: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = label;
+  b.title = title;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function showState(s: CellView) {
+  const c = ui.get(s.id);
+  if (!c) return;
+  c.root.dataset.status = s.status;
+  c.status.textContent = STATUS_TEXT[s.status] + (s.status === 'ok' && s.ms !== null ? ` · ${formatMs(s.ms)}` : '');
+  c.reason.textContent = s.reason ?? '';
+  c.reason.title = s.reason ?? '';
+  const meta = notebook?.cells.find((m) => m.id === s.id);
+  const actions: HTMLElement[] = [];
+  if (meta && meta.kind !== 'setup') {
+    actions.push(button(s.status === 'held' ? 'Run and write' : 'Run', 'Run this cell (Ctrl+Enter)', () => void runCells([s.id])));
+    if (s.status === 'skipped' && meta.when) actions.push(button('Run once anyway', 'Ignore the guard this time', () => void runCells([s.id], true)));
+  }
+  c.actions.replaceChildren(...actions);
+  showOutput(c, s);
+}
+
+function showOutput(c: CellUi, s: CellView) {
+  const key = s.status === 'error' ? `error:${s.error?.message}` : JSON.stringify(s.output.kind === 'table'
+    ? { t: s.output.table.table, n: s.output.table.rowCount, runs: s.runs } : { o: s.output, runs: s.runs });
+  if (key === c.drawn) return;
+  c.drawn = key;
+  c.grid?.destroy();
+  c.grid = null;
+  c.output.replaceChildren();
+  if (s.status === 'error' && s.error) {
+    const pre = document.createElement('pre');
+    pre.className = 'error';
+    pre.textContent = s.error.message;
+    c.output.append(pre);
+    return;
+  }
+  const out = s.output;
+  if (out.kind === 'table') {
+    const { table, preview } = out;
+    const box = document.createElement('div');
+    box.className = 'table';
+    box.style.height = `${Math.min(table.rowCount, 12) * 26 + 32}px`;
+    const foot = document.createElement('div');
+    foot.className = 'table-foot';
+    const count = document.createElement('span');
+    count.textContent = `${table.rowCount.toLocaleString()} row${table.rowCount === 1 ? '' : 's'} · ${table.columns.length} column${table.columns.length === 1 ? '' : 's'}`;
+    foot.append(count, button('Download CSV', 'Download every row as CSV', () => void downloadCsv(c.id, table.columns, table.rowCount)));
+    c.output.append(box, foot);
+    c.grid = new Grid(box, { emptyText: 'No rows' });
+    c.grid.setSource({
+      columns: table.columns.map((name, i) => ({ name, type: table.columnTypes[i] ?? null })),
+      rowCount: table.rowCount,
+      initial: preview.rows as GridRow[],
+      fetch: async (offset, limit) => (await kernel.rows(c.id, offset, limit)).rows as GridRow[],
+    });
+    return;
+  }
+  if (out.kind === 'value' || out.kind === 'text') {
+    const pre = document.createElement('pre');
+    pre.className = 'value';
+    pre.textContent = out.kind === 'text' ? out.text : show(out.value);
+    c.output.append(pre);
+  }
+}
+
+async function downloadCsv(id: string, columns: string[], rowCount: number) {
+  const rows = (await kernel.rows(id, 0, rowCount)).rows as GridRow[];
+  download(`${fileName(id)}.csv`, exportRows('csv', columns, rows), 'text/csv');
+}
+
+function show(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined) return 'undefined';
+  try {
+    return JSON.stringify(value, (_k, v: unknown) => (typeof v === 'bigint' ? `${v}n` : v instanceof Map ? Object.fromEntries(v) : v instanceof Set ? [...v] : v), 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatMs(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
+}
+
+function save() {
+  try {
+    localStorage.setItem(STORE, source);
+    localStorage.setItem(NAME, nameEl.value);
+  } catch {
+    // Storage blocked: the notebook still works, it just isn't kept.
+  }
+}
+
+async function load(src: string, name: string) {
+  source = src.endsWith('\n') ? src : src + '\n';
+  nameEl.value = name;
+  fitName();
+  chunks = [];
+  save();
+  await kernel.open(source, `${name}.nb.ts`);
+  await kernel.runAll().catch((err: Error) => toast(err.message, 'error'));
+}
+
+function addCell(kind: 'cell' | 'action') {
+  const ids = new Set(chunks.map((c) => c.id));
+  let n = chunks.length;
+  while (ids.has(`${kind}${n}`)) n++;
+  source = currentSource() + `\n${kind}('${kind}${n}');\n`;
+  save();
+  void kernel.update(source);
+}
+
+$('#run-all').addEventListener('click', async () => {
+  await flush();
+  await kernel.runAll().catch((err: Error) => toast(err.message, 'error'));
+});
+$('#restart').addEventListener('click', async () => {
+  await kernel.restart();
+  toast('The kernel was restarted. Run the cells again to get their results back.');
+});
+$('#add-cell').addEventListener('click', () => addCell('cell'));
+$('#add-action').addEventListener('click', () => addCell('action'));
+$('#open').addEventListener('click', async () => {
+  const file = await pickFile('.ts,.nb.ts,text/plain');
+  if (file) await load(await file.text(), file.name.replace(/(\.nb)?\.ts$/, ''));
+});
+$('#save').addEventListener('click', async () => {
+  await flush();
+  download(`${fileName(nameEl.value || 'notebook')}.nb.ts`, source, 'text/typescript');
+});
+$('#demo').addEventListener('click', async () => {
+  await load(await (await fetch('demo.nb.ts')).text(), 'shop');
+});
+const fitName = () => (nameEl.size = Math.min(30, Math.max(4, nameEl.value.length)));
+nameEl.addEventListener('input', fitName);
+nameEl.addEventListener('change', save);
+
+async function start() {
+  let src: string | null = null;
+  let name = 'shop';
+  try {
+    src = localStorage.getItem(STORE);
+    name = localStorage.getItem(NAME) || name;
+  } catch {
+    // Storage blocked.
+  }
+  if (!src) src = await (await fetch('demo.nb.ts')).text();
+  await load(src, name);
+}
+
+void start();

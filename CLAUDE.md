@@ -9,6 +9,7 @@ smaltdb have matching files; keep the working rules the same.
 
 ```bash
 npm install            # prepare builds dist/ (tsc -p tsconfig.build.json)
+npm run deps           # smaltdb, smaltql, smaltdf pinned in packed.json (scripts/fetch-packed.mjs); again after each npm install
 npm run typecheck      # tsc --noEmit, strict, over src/, test/ and examples/ (CI runs it)
 npm test               # build, then node --test test/*.test.ts against the built package
 npm run docs:dev       # the docs site (VitePress) with live reload; docs:build fails on dead links

@@ -2,9 +2,14 @@
 // it defines, plus the value of its last expression (its output). The runtime keeps each cell's state and applies the
 // notebook's rules: run modes, guards, cells that wait for inputs that aren't current, and edits to the source.
 //
-// No database, worker or page here: those wrap this. The TypeScript compiler is passed in, as for parseNotebook.
+// With a database, cells get `db`, `sql` and `exec` (./sql.js): queries and smaltdf frames are collected into TEMP
+// tables when their cell finishes, and writes are checked by plan kind (./database.js). No worker or page here: those
+// wrap this. The TypeScript compiler is passed in, as for parseNotebook.
 
 import { action, cell } from './notebook.js';
+import { HeldWrite, NotebookDb, isFrame, type Rows, type WriteContext } from './database.js';
+import * as sqlModule from './sql.js';
+import { Relation, SqlQuery, registerCollected, statement, type CollectedTable } from './sql.js';
 import { parseNotebook, type Cell, type Diagnostic, type Notebook, type TypeScript } from './format.js';
 import { buildGraph, propagate, type Graph } from './graph.js';
 
@@ -14,9 +19,10 @@ import { buildGraph, propagate, type Graph } from './graph.js';
  * - `ok`: ran, and its result is current.
  * - `stale`: its result (if any) is out of date; it waits to be run, or for an input to become current.
  * - `skipped`: its guard, or the guard of a cell it reads, was false; it keeps its last result.
+ * - `held`: it tried to write to the database without being an action or run on request; it keeps its last result.
  * - `error`: it failed, or the notebook has an error in it.
  */
-export type CellStatus = 'idle' | 'running' | 'ok' | 'stale' | 'skipped' | 'error';
+export type CellStatus = 'idle' | 'running' | 'ok' | 'stale' | 'skipped' | 'held' | 'error';
 
 export interface CellState {
   id: string;
@@ -34,6 +40,8 @@ export interface CellState {
   ms: number | null;
   /** How many times the cell has run successfully. */
   runs: number;
+  /** When the output is a collected result: its table, and its first rows. */
+  outputTable: (CollectedTable & { preview: Rows }) | null;
 }
 
 export type ModuleLoader = (specifier: string) => Promise<Record<string, unknown>>;
@@ -45,6 +53,18 @@ export interface RuntimeOptions {
   fileName?: string;
   /** Called with a copy of a cell's state whenever it changes. */
   onChange?: (state: CellState) => void;
+  /**
+   * The notebook's database: a smaltdb `Database`, in process (smaltdb/engine) or the worker client (smaltdb), with
+   * smaltql and smaltdf registered. Without one, `db`, `sql` results and `exec` fail with a message.
+   */
+  database?: unknown;
+  /**
+   * Turns a collected table into what later cells read: smaltdf's `table(name)`, so frame methods chain on a SQL
+   * result. Without it they read a `Relation`.
+   */
+  frame?: (table: string) => object;
+  /** Rows of a collected output sent with the cell's state (the rest are fetched with `rows`). Default 50. */
+  previewRows?: number;
 }
 
 export interface RunOptions {
@@ -67,7 +87,11 @@ interface Compiled {
 }
 
 const AsyncFunction = (async () => {}).constructor as new (...args: string[]) => (...a: unknown[]) => Promise<unknown>;
-const BUILTIN: Record<string, Record<string, unknown>> = { smaltnb: { cell, action } };
+
+/** A collected table's name: per cell and name, readable in the database's TEMP tables. */
+function tableName(cell: string, name: string): string {
+  return `nb_${cell.replace(/[^A-Za-z0-9_]+/g, '_')}_${name}`;
+}
 
 export class Runtime {
   #ts: TypeScript;
@@ -79,10 +103,26 @@ export class Runtime {
   #compiled = new Map<string, Compiled>();
   #signatures = new Map<string, string>();
   #queue: Promise<unknown> = Promise.resolve();
+  #db: NotebookDb | null;
+  #context: WriteContext | null = null;
+  #tables = new Map<string, Set<string>>();
+  #builtins: Record<string, Record<string, unknown>>;
 
   constructor(source: string, options: RuntimeOptions) {
     this.#ts = options.ts;
     this.#options = options;
+    this.#db = options.database ? new NotebookDb(options.database, () => this.#context) : null;
+    const noDb = () => { throw new Error('This notebook has no database.'); };
+    this.#builtins = {
+      smaltnb: {
+        ...sqlModule,
+        cell,
+        action,
+        db: this.#db ? this.#db.handle() : new Proxy({}, { get: (_t, k) => (k === 'then' ? undefined : noDb()) }),
+        exec: (strings: TemplateStringsArray, ...values: unknown[]) =>
+          this.#db ? this.#db.exec(statement(strings, values)) : Promise.reject(new Error('This notebook has no database.')),
+      },
+    };
     this.#load(source);
   }
 
@@ -113,7 +153,7 @@ export class Runtime {
     return this.#enqueue(async () => {
       for (const id of this.#graph.order) {
         if (this.#cell(id).kind === 'action' && !options.actions) continue;
-        await this.#execute(id, false);
+        await this.#execute(id, false, false);
       }
     });
   }
@@ -127,8 +167,17 @@ export class Runtime {
       for (const id of ids) this.#cell(id);
       const plan = propagate(this.#graph, [], { run: ids });
       this.#markStale(plan.stale, 'an input changed');
-      for (const id of plan.run) await this.#execute(id, !!options.force && ids.includes(id));
+      for (const id of plan.run) await this.#execute(id, !!options.force && ids.includes(id), ids.includes(id));
     });
+  }
+
+  /** A window of a cell's collected output (for a grid that scrolls), or of one of its collected names. */
+  async rows(cell: string, offset: number, limit: number, name?: string): Promise<Rows> {
+    const s = this.#states.get(cell);
+    if (!s) throw new Error(`No cell named "${cell}".`);
+    const table = name === undefined ? s.outputTable?.table : sqlModule.collectedTable(s.values[name])?.table;
+    if (!table || !this.#db) throw new Error(`Cell "${cell}" has no collected ${name === undefined ? 'output' : `"${name}"`}.`);
+    return this.#db.rows(table, offset, limit);
   }
 
   /**
@@ -147,7 +196,7 @@ export class Runtime {
           : changed.includes(id) ? 'edited, not run' : 'an input changed';
         this.#markStale([id], reason);
       }
-      for (const id of plan.run) await this.#execute(id, false);
+      for (const id of plan.run) await this.#execute(id, false, false);
     });
   }
 
@@ -168,7 +217,11 @@ export class Runtime {
     this.#notebook = parseNotebook(source, this.#ts, { fileName: this.#options.fileName });
     this.#graph = buildGraph(this.#notebook);
     const ids = new Set(this.#notebook.cells.map((c) => c.id));
-    for (const id of [...this.#states.keys()]) if (!ids.has(id)) this.#states.delete(id);
+    for (const id of [...this.#states.keys()]) {
+      if (ids.has(id)) continue;
+      this.#states.delete(id);
+      void this.#dropTables(id, new Set());
+    }
     this.#signatures.clear();
     for (const c of this.#notebook.cells) {
       const code = c.body ? source.slice(c.body.start, c.body.end) : '';
@@ -176,7 +229,7 @@ export class Runtime {
       if (!this.#states.has(c.id)) {
         this.#states.set(c.id, {
           id: c.id, status: 'idle', reason: null, values: {}, hasOutput: c.output !== null, output: undefined,
-          error: null, ms: null, runs: 0,
+          error: null, ms: null, runs: 0, outputTable: null,
         });
       }
       this.#states.get(c.id)!.hasOutput = c.output !== null;
@@ -193,7 +246,11 @@ export class Runtime {
     for (const id of ids) if (this.#states.get(id)!.status !== 'idle') this.#set(id, { status: 'stale', reason });
   }
 
-  async #execute(id: string, force: boolean): Promise<void> {
+  /**
+   * Runs one cell if it can run now. `force` ignores its guard; `requested` means it was run on request (a Run
+   * button), which lets a cell that isn't an action write.
+   */
+  async #execute(id: string, force: boolean, requested: boolean): Promise<void> {
     const c = this.#cell(id);
     const errors = this.#graph.diagnostics.filter((d) => d.cell === id && d.severity === 'error');
     if (errors.length) {
@@ -231,18 +288,63 @@ export class Runtime {
     }
     this.#set(id, { status: 'running', reason: null });
     const t0 = performance.now();
+    this.#context = { cell: id, allowWrites: c.kind === 'action' || requested };
     try {
       const r = await compiled.fn(inputs);
+      this.#context = null;
+      const collected = c.live || c.kind === 'setup' ? { values: r.values, output: r.output, outputTable: null } : await this.#collect(id, r.values, r.output);
       const s = this.#states.get(id)!;
-      this.#set(id, { status: 'ok', reason: null, error: null, values: r.values, output: r.output, ms: performance.now() - t0, runs: s.runs + 1 });
+      this.#set(id, {
+        status: 'ok', reason: null, error: null, values: collected.values, output: collected.output,
+        outputTable: collected.outputTable, ms: performance.now() - t0, runs: s.runs + 1,
+      });
     } catch (err) {
-      this.#fail(id, err, performance.now() - t0);
+      this.#context = null;
+      if (err instanceof HeldWrite) this.#set(id, { status: 'held', reason: err.message, ms: performance.now() - t0 });
+      else this.#fail(id, err, performance.now() - t0);
     }
+  }
+
+  /**
+   * Collects the cell's queries and smaltdf frames into TEMP tables (DESIGN.md decision 12): later cells read the
+   * collected rows, as a frame over the table (with `frame`) or a `Relation`.
+   */
+  async #collect(id: string, values: Record<string, unknown>, output: unknown) {
+    const kept = new Set<string>();
+    const replaced = new Map<unknown, unknown>();
+    const out: Record<string, unknown> = { ...values };
+    const one = async (value: unknown, table: string) => {
+      if (replaced.has(value)) return replaced.get(value);
+      if (!(value instanceof SqlQuery) && !isFrame(value)) return value;
+      if (!this.#db) throw new Error('This notebook has no database to run its queries.');
+      const info = value instanceof SqlQuery ? await this.#db.collectQuery(value, table) : await this.#db.collectFrame(value, table);
+      const result = this.#options.frame ? this.#options.frame(table) : new Relation(info);
+      registerCollected(result, info);
+      kept.add(table);
+      replaced.set(value, result);
+      return result;
+    };
+    for (const [name, value] of Object.entries(values)) out[name] = await one(value, tableName(id, name));
+    const collectedOutput = await one(output, tableName(id, '_output'));
+    await this.#dropTables(id, kept);
+    const info = sqlModule.collectedTable(collectedOutput);
+    const outputTable = info && this.#db
+      ? { ...info, preview: await this.#db.rows(info.table, 0, this.#options.previewRows ?? 50) }
+      : null;
+    return { values: out, output: collectedOutput, outputTable };
+  }
+
+  /** Drops the cell's collected tables that it no longer has. */
+  async #dropTables(id: string, keep: Set<string>) {
+    const old = this.#tables.get(id) ?? new Set<string>();
+    if (this.#db) for (const t of old) if (!keep.has(t)) await this.#db.drop(t);
+    if (keep.size) this.#tables.set(id, keep);
+    else this.#tables.delete(id);
   }
 
   #fail(id: string, err: unknown, ms: number | null = null) {
     const e = err instanceof Error ? err : new Error(String(err));
-    this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, ms });
+    this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, ms });
   }
 
   #compile(c: Cell): Compiled {
@@ -251,7 +353,7 @@ export class Runtime {
     const cached = this.#compiled.get(c.id);
     if (cached?.key === key) return cached;
     const values = c.defines.filter((n) => !c.typeDefines.includes(n));
-    const fn = c.kind === 'setup' ? compileSetup(this.#ts, code, this.#options.importModule) : compileCell(this.#ts, code, c.reads, values);
+    const fn = c.kind === 'setup' ? compileSetup(this.#ts, code, this.#builtins, this.#options.importModule) : compileCell(this.#ts, code, c.reads, values);
     const guard = c.when ? compileGuard(this.#ts, c.when.text, c.when.reads) : null;
     const compiled = { key, fn, guard };
     this.#compiled.set(c.id, compiled);
@@ -306,7 +408,7 @@ function compileCell(ts: TypeScript, code: string, reads: string[], values: stri
 }
 
 /** The setup cell's imports, loaded with the module loader (`smaltnb` is built in). Type-only imports are dropped. */
-function compileSetup(ts: TypeScript, code: string, load: ModuleLoader | undefined): CellFn {
+function compileSetup(ts: TypeScript, code: string, builtins: Record<string, Record<string, unknown>>, load: ModuleLoader | undefined): CellFn {
   const sf = ts.createSourceFile('setup.ts', code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
   const imports: { spec: string; bind: (m: Record<string, unknown>, out: Record<string, unknown>) => void }[] = [];
   for (const st of sf.statements) {
@@ -334,7 +436,7 @@ function compileSetup(ts: TypeScript, code: string, load: ModuleLoader | undefin
   return async () => {
     const out: Record<string, unknown> = {};
     for (const imp of imports) {
-      const m = BUILTIN[imp.spec] ?? (load ? await load(imp.spec) : undefined);
+      const m = builtins[imp.spec] ?? (load ? await load(imp.spec) : undefined);
       if (!m) throw new Error(`Can't load '${imp.spec}': no module loader was given.`);
       imp.bind(m, out);
     }

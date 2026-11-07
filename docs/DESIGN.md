@@ -33,7 +33,7 @@ not aim to be a port of any of them.
 | 19 | Credentials | Secrets stay secret. A notebook declares what it needs, never a value (`credential(name, { kind, endpoint })`); SQL connections refer to it by name. The app registers values with the engine; cell code never sees them. Browser v1: session memory and autofill-friendly forms; later a passkey-unlocked vault and provider sign-in. Node and Actions: environment variables, cloud SDK credential lookup, OIDC. |
 | 20 | Shared UI | Charts, tables and editors, and as much other UI as possible, are shared by smaltui, smaltbi and smaltnb in smaltkit. smaltnb keeps only what is notebook-specific: cell chrome, the graph view, run state. |
 | 21 | Editor | smaltui's dependency-free editor, moved to `smaltkit/editor` and extended to TypeScript. The TypeScript compiler is loaded at run time, as `smaltkit/engine` loads smaltdb. |
-| 22 | Charts and tables | `smaltkit/chart`, moved from smaltbi's `src/visuals/`. Two table components for now: `smaltkit/grid` (smaltui's grid) for exploring rows, smaltbi's table and matrix as chart types. |
+| 22 | Charts and tables | `smaltkit/charts`, moved from smaltbi's `src/visuals/`. Two table components for now: `smaltkit/grid` (smaltui's grid) for exploring rows, smaltbi's table and matrix as chart types. |
 | 23 | smaltts | Decided later. Another plan-layer language can join without a format change. |
 
 ## A notebook
@@ -91,7 +91,7 @@ Each step is one PR.
 
 | Repository | Needed |
 |---|---|
-| smaltkit | `editor`, `grid` (from smaltui), `chart`, `controls` (from smaltbi), `git` (new), the environment manifest. |
+| smaltkit | In: `editor` and `grid` (from smaltui), `charts` (from smaltbi), `sql`. In stenhoor/smaltkit#6: `controls` and the environment manifest. Still needed: `git` (new). |
 | smaltdb | Which tables a statement reads and writes (for edges through tables and staleness after a write). In the worker client, a prepared statement's `readonly` and `kind`, as the in-process engine already gives them (plan data carries its kind, so plans are checked today). A change counter like SQLite's `PRAGMA data_version`. Later: writable external tables and an external file-writer plugin. |
 | smaltql | From a parse, without running: statement kind, tables read and written, result columns and types. |
 | smaltdf | A plan's kind and the tables it touches. Later: a frame over another language's plan with its types, and a typed `Frame<S>`. |

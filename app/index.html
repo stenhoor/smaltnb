@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smaltnb</title>
+<meta name="description" content="Reactive notebooks for smaltdb.">
+<link rel="icon" type="image/svg+xml" href="brand/favicon-32.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&family=Martian+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="brand/tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="../" title="smaltnb: the docs">
+    <picture>
+      <source srcset="brand/pencil-mark-on-dark.svg" media="(prefers-color-scheme: dark)">
+      <img src="brand/pencil-mark.svg" alt="" width="26" height="26">
+    </picture>
+    <span class="word">sm<b>alt</b><i>nb</i></span>
+  </a>
+  <input id="name" aria-label="Notebook name" value="shop" spellcheck="false">
+  <span class="ext">.nb.ts</span>
+  <span class="spacer"></span>
+  <button id="run-all" class="primary" type="button" title="Run every cell; actions run only from their own Run button">Run all</button>
+  <button id="restart" type="button" title="Stop whatever is running: the cells' results are lost, the database is kept">Restart</button>
+  <button id="add-cell" type="button">+ Cell</button>
+  <button id="add-action" type="button" title="A cell that writes: it runs only when you run it">+ Action</button>
+  <button id="open" type="button">Open…</button>
+  <button id="save" type="button" title="Download the notebook as a .nb.ts file">Download</button>
+  <button id="demo" type="button" title="Replace this notebook with the demo">Demo</button>
+</header>
+<main>
+  <ul id="diagnostics" hidden></ul>
+  <div id="cells"></div>
+</main>
+<script type="module" src="main.js"></script>
+</body>
+</html>

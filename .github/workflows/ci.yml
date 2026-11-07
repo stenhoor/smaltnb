@@ -16,3 +16,19 @@ jobs:
       - run: npm run deps    # smaltdb, smaltql and smaltdf, pinned in packed.json until they are on npm
       - run: npm run typecheck
       - run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run deps
+      # Playwright in its own folder: an npm install in the project would remove what npm run deps installed, and
+      # npm run deps would remove a Playwright installed with --no-save. test/e2e/app.mjs finds it through NODE_PATH.
+      - run: npm install --prefix "$RUNNER_TEMP/pw" playwright && "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+      - run: npm run e2e
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules     # builds the notebook page and drives it in headless Chromium

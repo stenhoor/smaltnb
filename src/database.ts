@@ -80,7 +80,9 @@ export class NotebookDb {
   /** Runs a query, unchecked: the runtime's own reads. */
   async query(text: string, params: readonly SqlParam[] = []): Promise<Rows & { columnTypes: string[] }> {
     const r = this.inProcess ? this.raw.query(text, params) : await this.raw.query(text, params, { rowMode: 'array' });
-    return { columns: r.columns, rows: r.rows, columnTypes: r.columnTypes ?? r.columns.map(() => 'any') };
+    // The engine gives { columns, rows }; the worker client's 'array' mode gives the rows array, with columns on it.
+    const rows: unknown[][] = Array.isArray(r) ? [...r] : r.rows;
+    return { columns: r.columns, rows, columnTypes: r.columnTypes ?? r.columns.map(() => 'any') };
   }
 
   /** Runs statements, unchecked: the runtime's own writes (its TEMP tables). */

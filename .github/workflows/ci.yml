@@ -13,5 +13,6 @@ jobs:
         with:
           node-version: 22
       - run: npm ci          # also builds dist/ (prepare)
+      - run: npm run deps    # smaltdb, smaltql and smaltdf, pinned in packed.json until they are on npm
       - run: npm run typecheck
       - run: npm test

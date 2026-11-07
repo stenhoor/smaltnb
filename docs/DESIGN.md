@@ -92,7 +92,7 @@ Each step is one PR.
 | Repository | Needed |
 |---|---|
 | smaltkit | `editor`, `grid` (from smaltui), `chart`, `controls` (from smaltbi), `git` (new), the environment manifest. |
-| smaltdb | Plan statements that say whether they write and which tables they read and write; a read-only handle or transaction; a change counter like SQLite's `PRAGMA data_version`. Later: writable external tables and an external file-writer plugin. |
+| smaltdb | Which tables a statement reads and writes (for edges through tables and staleness after a write). In the worker client, a prepared statement's `readonly` and `kind`, as the in-process engine already gives them (plan data carries its kind, so plans are checked today). A change counter like SQLite's `PRAGMA data_version`. Later: writable external tables and an external file-writer plugin. |
 | smaltql | From a parse, without running: statement kind, tables read and written, result columns and types. |
 | smaltdf | A plan's kind and the tables it touches. Later: a frame over another language's plan with its types, and a typed `Frame<S>`. |
 

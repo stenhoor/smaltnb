@@ -1,8 +1,9 @@
 # Notebooks
 
-::: warning In development
-The format, its graph, [the runtime](./runtime), [the kernel](./runtime#the-kernel) and [the database](./runtime#the-database)
-are in ([Status](./status)): notebooks run, with SQL and dataframes, run modes and guards, in a worker off the page. There's no notebook page, database or SQL yet. Parts marked *planned* come later.
+::: tip Try it
+[Open a notebook](https://stenhoor.github.io/smaltnb/app/): [the notebook page](./page) runs in your browser.
+Cells run reactively with SQL and dataframes, in a worker off the page. Parts marked *planned* come later
+([Status](./status)).
 :::
 
 smaltnb is a reactive notebook for [smaltdb](https://smaltdb.dev), for data work in the browser: loading and cleaning

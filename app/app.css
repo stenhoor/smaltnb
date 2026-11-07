@@ -1,0 +1,54 @@
+/* The notebook page. Colours come from the smalt brand tokens (brand/tokens.css); the editor and grid from ui.css. */
+:root { --font-sans: 'Geist', system-ui, sans-serif; --font-mono: 'Geist Mono', ui-monospace, monospace; --font-brand: 'Martian Mono', ui-monospace, monospace; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--font-sans); }
+button { font: 500 13px var(--font-sans); color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; cursor: pointer; }
+button:hover { border-color: var(--text-3); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+button.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+
+.bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px max(16px, env(safe-area-inset-left)); background: var(--surface); border-bottom: 1px solid var(--border); }
+.brand { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); margin-right: 8px; }
+.word { font: 600 16px var(--font-brand); letter-spacing: -0.02em; }
+.word b { color: var(--primary); font-weight: 600; }
+.word i { color: var(--product-nb-text); font-style: normal; }
+#name { font: 500 14px var(--font-mono); color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 4px 0 4px 6px; width: auto; }
+#name:hover { border-color: var(--border); }
+.ext { color: var(--text-3); font: 14px var(--font-mono); margin-left: -8px; }
+.spacer { flex: 1; }
+
+main { max-width: 1100px; margin: 0 auto; padding: 16px max(16px, env(safe-area-inset-right)) 96px; display: grid; gap: 14px; }
+#diagnostics { margin: 0; padding: 10px 14px 10px 30px; border: 1px solid var(--border); border-left: 3px solid var(--danger); border-radius: 6px; background: var(--surface); font-size: 13px; }
+#diagnostics .warning { color: var(--warning); }
+#diagnostics .error { color: var(--danger); }
+#cells { display: grid; gap: 14px; }
+
+.cell { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; border-left: 3px solid var(--border); }
+.cell[data-status="ok"] { border-left-color: var(--success); }
+.cell[data-status="running"] { border-left-color: var(--product-nb); }
+.cell[data-status="stale"], .cell[data-status="held"] { border-left-color: var(--warning); }
+.cell[data-status="error"] { border-left-color: var(--danger); }
+.cell[data-status="skipped"] { border-left-style: dashed; border-left-color: var(--text-3); }
+.cell header { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text-3); min-width: 0; }
+.cell-name { font: 500 13px var(--font-mono); color: var(--text); }
+.chip { font: 600 10px var(--font-brand); letter-spacing: 0.05em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; background: var(--code-bg); color: var(--text-2); }
+.kind-action .chip { background: color-mix(in oklab, var(--accent) 14%, var(--surface)); color: var(--accent); }
+.status { font-weight: 500; white-space: nowrap; }
+.cell[data-status="ok"] .status { color: var(--success); }
+.cell[data-status="stale"] .status, .cell[data-status="held"] .status { color: var(--warning); }
+.cell[data-status="error"] .status { color: var(--danger); }
+.cell[data-status="running"] .status { color: var(--product-nb-text); }
+.reason { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions { display: flex; gap: 6px; }
+.actions button { padding: 2px 9px; font-size: 12px; }
+.cell[data-status="held"] .actions button:first-child { border-color: var(--warning); color: var(--warning); }
+.cell-editor { display: grid; min-height: 38px; }
+.cell-editor.sk-editor { border-bottom: 1px solid transparent; }
+.output:empty { display: none; }
+.output { border-top: 1px solid var(--border); }
+.output pre { margin: 0; padding: 10px 14px; font: 12.5px/1.5 var(--font-mono); white-space: pre-wrap; overflow: auto; max-height: 360px; }
+.output pre.error { color: var(--danger); }
+.table { display: flex; min-height: 60px; max-height: 360px; }
+.table-foot { display: flex; align-items: center; gap: 12px; padding: 5px 12px; font-size: 12px; color: var(--text-3); border-top: 1px solid var(--border); }
+.table-foot button { padding: 1px 8px; font-size: 12px; margin-left: auto; }
+@media (max-width: 640px) { .bar button:not(.primary):not(#restart) { display: none; } }

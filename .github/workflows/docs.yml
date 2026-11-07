@@ -3,7 +3,7 @@ name: Docs
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'package.json', 'package-lock.json', '.github/workflows/docs.yml']
+    paths: ['docs/**', 'app/**', 'src/**', 'examples/**', 'scripts/**', 'packed.json', 'package.json', 'package-lock.json', '.github/workflows/docs.yml']
   workflow_dispatch:
 
 permissions:
@@ -26,6 +26,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run docs:build
+      - run: npm run deps                                     # smaltdb, smaltql, smaltdf for the app
+      - run: node scripts/build-app.mjs docs/.vitepress/dist/app   # the notebook page, at /smaltnb/app/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

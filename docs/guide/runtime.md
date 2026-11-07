@@ -1,7 +1,7 @@
 # The runtime
 
-`smaltnb/runtime` runs a notebook. It is the core the notebook page and, later, headless runs are built on: no
-database, worker or page of its own yet. Those come next in [milestone 1](./status).
+`smaltnb/runtime` runs a notebook. It is the core the [kernel](#the-kernel) serves to the page and, later, headless
+runs use. It has no database or page of its own yet: those come next in [milestone 1](./status).
 
 ```ts
 import ts from 'typescript';
@@ -56,5 +56,40 @@ The setup cell loads its imports with `importModule`. `import type` and type-onl
   too.
 - Runs never interleave: calls queue and run one after another.
 
+## The kernel
+
+In a page, cells run in a Web Worker, the kernel, so the page stays responsive and a cell that never finishes can be
+stopped. `smaltnb/kernel` serves the runtime in the worker; `smaltnb/client` is the page's side.
+
+```ts
+// kernel-worker.ts
+import { serveKernel, loadTypeScript } from 'smaltnb/kernel';
+serveKernel(self, { ts: loadTypeScript(), importModule: (spec) => import(spec) });
+```
+
+```ts
+// the page
+import { KernelClient } from 'smaltnb/client';
+
+const kernel = new KernelClient(
+  () => new Worker(new URL('./kernel-worker.js', import.meta.url), { type: 'module' }),
+  { onState: (cell) => render(cell), onNotebook: (nb) => draw(nb.cells, nb.edges, nb.diagnostics) },
+);
+await kernel.open(source, 'regional.nb.ts');
+await kernel.runAll();
+await kernel.update(editedSource);
+await kernel.restart();   // stop a run that never finishes
+```
+
+- **Restart** replaces the worker and opens the notebook again in the new one. Every cell goes back to `idle` with the
+  reason `the kernel was restarted`, and requests that were waiting fail. The database has its own worker and is not
+  touched.
+- **Edits** reach the page at once: `onNotebook` gets the new cells, graph and diagnostics before anything reruns, even
+  while a long cell is running.
+- **Values stay in the kernel.** The page gets each cell's state and its output: the value itself when it can be cloned
+  across, otherwise a description such as `[function load]`.
+- **The TypeScript compiler** is loaded in the worker at run time: `loadTypeScript()` fetches `lib/typescript.js`
+  (from jsDelivr by default, or the app's own copy) and evaluates it, with no bundler.
+
 *Planned in milestone 1:* `db`, `sql` and `exec`; cells that write, decided by the plans they send; collected results;
-the kernel worker; the notebook page.
+the notebook page.

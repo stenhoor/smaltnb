@@ -14,6 +14,7 @@ import { buildGraph, type Edge } from './graph.js';
 import { createRuntime, type CellState, type ModuleLoader, type Runtime } from './runtime.js';
 import type { Rows } from './database.js';
 import type { CollectedTable } from './sql.js';
+import type { ParamInfo } from './params.js';
 
 /** Where the TypeScript compiler is loaded from by default: the version smaltnb is built and tested with. */
 export const TYPESCRIPT_URL = 'https://cdn.jsdelivr.net/npm/typescript@5.9.3/lib/typescript.js';
@@ -53,7 +54,8 @@ export interface NotebookView {
 
 /** Page to kernel. Each request has an id; the kernel answers with `done` or `failed` for that id. */
 export type Request =
-  | { type: 'open'; id: number; source: string; fileName?: string }
+  | { type: 'open'; id: number; source: string; fileName?: string; params?: Record<string, string> }
+  | { type: 'setParams'; id: number; values: Record<string, string | null> }
   | { type: 'update'; id: number; source: string }
   | { type: 'run'; id: number; cells: string[]; force?: boolean }
   | { type: 'runAll'; id: number; actions?: boolean }
@@ -63,6 +65,7 @@ export type Request =
 export type Reply =
   | { type: 'ready' }
   | { type: 'notebook'; notebook: NotebookView }
+  | { type: 'params'; params: ParamInfo[] }
   | { type: 'state'; state: CellView }
   | { type: 'done'; id: number; result?: unknown }
   | { type: 'failed'; id: number; message: string };
@@ -103,6 +106,8 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
           ts, fileName, importModule: options.importModule,
           database: options.database ? await openDatabase() : undefined, frame: options.frame,
           onChange: (state) => post({ type: 'state', state: view(state) }),
+          params: req.params,
+          onParams: (params) => post({ type: 'params', params }),
         });
         for (const s of runtime.states()) post({ type: 'state', state: view(s) });
         return;
@@ -114,6 +119,8 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
         return opened().run(req.cells, { force: req.force });
       case 'runAll':
         return opened().runAll({ actions: req.actions });
+      case 'setParams':
+        return opened().setParams(req.values);
       case 'rows':
         return opened().rows(req.cell, req.offset, req.limit, req.name);
     }

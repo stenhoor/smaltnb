@@ -58,6 +58,14 @@ The setup cell loads its imports with `importModule`. `import type` and type-onl
   too.
 - Runs never interleave: calls queue and run one after another.
 
+## Parameters
+
+`createRuntime(source, { params, onParams })` takes parameter values as text (`{ minQty: '5' }`) and reports the
+notebook's parameters (`ParamInfo`: name, kind, default, value, choices, declaring cell, and `error` for a value that
+doesn't fit) whenever they change. `rt.setParams({ minQty: '7' })` sets values (null goes back to the default): the
+declaring cell runs again, and what reads it reacts as to an edit. The kernel and `KernelClient` carry the same:
+`open(source, fileName, params)`, `setParams`, `onParams`, `params`; a restart keeps the values.
+
 ## The kernel
 
 In a page, cells run in a Web Worker, the kernel, so the page stays responsive and a cell that never finishes can be
@@ -142,5 +150,5 @@ await exec`INSERT INTO region_totals SELECT * FROM ${byRegion}`;
 *Not yet:* through smaltdb's worker client, SQL text can't be classified until smaltdb reports whether a statement is
 read-only there (in process it does), so until then `exec` counts as a write and a query as a read. Cells that read a
 table an action wrote don't go stale yet: that needs plans to say which tables they read and write. Both are listed
-in the [design](../DESIGN#needed-from-other-repositories). *Planned:* `md` and `param`. [The notebook page](./page) puts all of
+in the [design](../DESIGN#needed-from-other-repositories). *Planned:* `md`. [The notebook page](./page) puts all of
 this in a browser.

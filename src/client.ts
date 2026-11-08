@@ -4,6 +4,7 @@
 
 import type { CellView, NotebookView, Reply, Request } from './kernel.js';
 import type { Rows } from './database.js';
+import type { ParamInfo } from './params.js';
 
 /** What the client needs of a worker: a browser `Worker`, or an adapter around another kind. */
 export interface WorkerLike {
@@ -17,6 +18,8 @@ export interface KernelClientOptions {
   onState?: (state: CellView) => void;
   /** Called with the notebook's cells, graph and diagnostics whenever the source changes. */
   onNotebook?: (notebook: NotebookView) => void;
+  /** Called with the notebook's parameters whenever they change. */
+  onParams?: (params: ParamInfo[]) => void;
 }
 
 type Body<T> = T extends { id: number } ? Omit<T, 'id'> : never;
@@ -31,6 +34,8 @@ export class KernelClient {
   #notebook: NotebookView | null = null;
   #source: string | null = null;
   #fileName: string | undefined;
+  #params: ParamInfo[] = [];
+  #paramValues: Record<string, string> = {};
 
   constructor(createWorker: () => WorkerLike, options: KernelClientOptions = {}) {
     this.#create = createWorker;
@@ -50,12 +55,28 @@ export class KernelClient {
     return this.#states.get(id);
   }
 
-  /** Opens a notebook, replacing the one open. Nothing runs until `runAll` or `run`. */
-  open(source: string, fileName?: string): Promise<void> {
+  /** The notebook's parameters, as last reported. */
+  get params(): ParamInfo[] {
+    return this.#params;
+  }
+
+  /** Opens a notebook, replacing the one open, with parameter values as text. Nothing runs until `runAll` or `run`. */
+  open(source: string, fileName?: string, params: Record<string, string> = {}): Promise<void> {
     this.#source = source;
     this.#fileName = fileName;
+    this.#paramValues = { ...params };
     this.#states.clear();
-    return this.#send({ type: 'open', source, ...(fileName !== undefined && { fileName }) });
+    this.#params = [];
+    return this.#send({ type: 'open', source, params, ...(fileName !== undefined && { fileName }) });
+  }
+
+  /** Sets parameter values, as text; null goes back to the default. The cells that read them react. */
+  setParams(values: Record<string, string | null>): Promise<void> {
+    for (const [k, v] of Object.entries(values)) {
+      if (v === null) delete this.#paramValues[k];
+      else this.#paramValues[k] = v;
+    }
+    return this.#send({ type: 'setParams', values });
   }
 
   /** Sends an edit: changed cells and what follows react. */
@@ -93,7 +114,7 @@ export class KernelClient {
       this.#setState({ ...s, status: 'idle', reason: 'the kernel was restarted', output: { kind: 'none' }, error: null });
     }
     if (this.#source !== null) {
-      await this.#send({ type: 'open', source: this.#source, ...(this.#fileName !== undefined && { fileName: this.#fileName }) });
+      await this.#send({ type: 'open', source: this.#source, params: this.#paramValues, ...(this.#fileName !== undefined && { fileName: this.#fileName }) });
       // The new kernel reports its cells as idle with no reason; keep the reason until they run again.
       for (const s of this.#states.values()) if (s.status === 'idle') this.#setState({ ...s, reason: 'the kernel was restarted' });
     }
@@ -139,6 +160,10 @@ export class KernelClient {
       }
       case 'state':
         this.#setState(reply.state);
+        return;
+      case 'params':
+        this.#params = reply.params;
+        this.#options.onParams?.(reply.params);
         return;
       case 'done':
       case 'failed': {

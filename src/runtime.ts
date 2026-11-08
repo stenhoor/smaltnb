@@ -9,6 +9,7 @@
 import { action, cell } from './notebook.js';
 import { HeldWrite, NotebookDb, isFrame, type Rows, type WriteContext } from './database.js';
 import * as sqlModule from './sql.js';
+import { createParam, type ParamInfo, type ParamSpec } from './params.js';
 import { Relation, SqlQuery, registerCollected, statement, type CollectedTable } from './sql.js';
 import { parseNotebook, type Cell, type Diagnostic, type Notebook, type TypeScript } from './format.js';
 import { buildGraph, propagate, type Graph } from './graph.js';
@@ -65,6 +66,10 @@ export interface RuntimeOptions {
   frame?: (table: string) => object;
   /** Rows of a collected output sent with the cell's state (the rest are fetched with `rows`). Default 50. */
   previewRows?: number;
+  /** Parameter values from outside, as text (a URL's query, a headless run's arguments). */
+  params?: Record<string, string>;
+  /** Called with the notebook's parameters whenever they change: declared, removed, or given a new value. */
+  onParams?: (params: ParamInfo[]) => void;
 }
 
 export interface RunOptions {
@@ -107,6 +112,9 @@ export class Runtime {
   #context: WriteContext | null = null;
   #tables = new Map<string, Set<string>>();
   #builtins: Record<string, Record<string, unknown>>;
+  #paramValues: Map<string, string>;
+  #paramInfo = new Map<string, ParamInfo>();
+  #paramsSent = '[]';
 
   constructor(source: string, options: RuntimeOptions) {
     this.#ts = options.ts;
@@ -118,15 +126,70 @@ export class Runtime {
         ...sqlModule,
         cell,
         action,
+        param: createParam((name, spec) => this.#resolveParam(name, spec)),
         db: this.#db ? this.#db.handle() : new Proxy({}, { get: (_t, k) => (k === 'then' ? undefined : noDb()) }),
         exec: (strings: TemplateStringsArray, ...values: unknown[]) =>
           this.#db ? this.#db.exec(statement(strings, values)) : Promise.reject(new Error('This notebook has no database.')),
       },
     };
+    this.#paramValues = new Map(Object.entries(options.params ?? {}));
     this.#load(source);
   }
 
   get source(): string { return this.#source; }
+
+  /** The notebook's parameters, as declared by the cells that have run, with their values in use. */
+  params(): ParamInfo[] {
+    return [...this.#paramInfo.values()].map((p) => ({ ...p, ...(p.choices && { choices: [...p.choices] }) }));
+  }
+
+  /**
+   * Sets parameter values, as text (null goes back to the default). The cells that declare them run again, and what
+   * reads them reacts as to an edit. A value that doesn't fit is an error on the declaring cell.
+   */
+  setParams(values: Record<string, string | null>): Promise<void> {
+    return this.#enqueue(async () => {
+      for (const [name, value] of Object.entries(values)) {
+        if (value === null) this.#paramValues.delete(name);
+        else this.#paramValues.set(name, value);
+      }
+      const cells = [...new Set(Object.keys(values).map((n) => this.#paramInfo.get(n)?.cell).filter((c): c is string => !!c && this.#graph.byId.has(c)))];
+      if (!cells.length) return;
+      const plan = propagate(this.#graph, [], { run: cells });
+      this.#markStale(plan.stale, 'a parameter changed');
+      for (const id of plan.run) await this.#execute(id, false, false);
+    });
+  }
+
+  #resolveParam<T>(name: string, spec: ParamSpec<T>): T {
+    const cell = this.#context?.cell ?? '';
+    const other = this.#paramInfo.get(name);
+    if (other && other.cell !== cell) throw new Error(`Parameter "${name}" is already declared in cell "${other.cell}".`);
+    const text = this.#paramValues.get(name);
+    const info = (value: string, error?: string): ParamInfo => ({
+      name, kind: spec.kind, default: String(spec.default), value, cell,
+      ...(spec.choices && { choices: [...spec.choices] }), ...(error !== undefined && { error }),
+    });
+    let value: T;
+    try {
+      value = text === undefined ? spec.default : spec.parse(text);
+    } catch (err) {
+      // Recorded with the value that didn't fit, so the page shows it and setParams finds the cell to rerun.
+      const message = err instanceof Error ? err.message : String(err);
+      this.#paramInfo.set(name, info(text!, message));
+      throw new Error(`Parameter "${name}": ${message}`);
+    }
+    this.#paramInfo.set(name, info(String(value)));
+    return value;
+  }
+
+  /** Tells onParams when the parameters changed. */
+  #sendParams() {
+    const now = JSON.stringify(this.params());
+    if (now === this.#paramsSent) return;
+    this.#paramsSent = now;
+    this.#options.onParams?.(this.params());
+  }
   get notebook(): Notebook { return this.#notebook; }
   get graph(): Graph { return this.#graph; }
   get diagnostics(): Diagnostic[] { return this.#graph.diagnostics; }
@@ -197,7 +260,7 @@ export class Runtime {
         this.#markStale([id], reason);
       }
       for (const id of plan.run) await this.#execute(id, false, false);
-    });
+    }).finally(() => this.#sendParams());
   }
 
   #enqueue(work: () => Promise<void>): Promise<void> {
@@ -220,6 +283,7 @@ export class Runtime {
     for (const id of [...this.#states.keys()]) {
       if (ids.has(id)) continue;
       this.#states.delete(id);
+      for (const [name, p] of [...this.#paramInfo]) if (p.cell === id) this.#paramInfo.delete(name);
       void this.#dropTables(id, new Set());
     }
     this.#signatures.clear();
@@ -289,6 +353,7 @@ export class Runtime {
     this.#set(id, { status: 'running', reason: null });
     const t0 = performance.now();
     this.#context = { cell: id, allowWrites: c.kind === 'action' || requested };
+    for (const [name, p] of [...this.#paramInfo]) if (p.cell === id) this.#paramInfo.delete(name);
     try {
       const r = await compiled.fn(inputs);
       this.#context = null;
@@ -302,6 +367,8 @@ export class Runtime {
       this.#context = null;
       if (err instanceof HeldWrite) this.#set(id, { status: 'held', reason: err.message, ms: performance.now() - t0 });
       else this.#fail(id, err, performance.now() - t0);
+    } finally {
+      this.#sendParams();
     }
   }
 

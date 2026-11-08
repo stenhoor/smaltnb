@@ -45,7 +45,7 @@ await deleteFrom('orders_clean').run(db);
 await clean.insertInto(db, 'orders_clean');
 ```
 
-`cell()`, `action()`, `sql`, `exec` and `db` exist today; `md`, `param`, `ui` and `chart` are *planned*.
+`cell()`, `action()`, `sql`, `exec`, `db` and `param` exist today; `md`, `ui` and `chart` are *planned*.
 [examples/shop.nb.ts](../../examples/shop.nb.ts) is a notebook with SQL and smaltdf that typechecks and runs now.
 
 ## Reactive
@@ -61,6 +61,28 @@ cells that read it react, according to their run mode.
 
 A name is defined in one cell, and assigned only there. A notebook reads top to bottom: a cell can't read a name
 defined further down, except a function declaration. See [the format](./format) for the exact rules.
+
+## Parameters
+
+`param()` declares values set from outside the notebook, with their defaults in the source:
+
+```ts
+cell('params');
+export const params = param({
+  mode: param.choice(['incremental', 'full'], 'incremental'),  // params.mode: 'incremental' | 'full'
+  since: param.isoDate('2026-10-01'),                           // a date as YYYY-MM-DD text
+  minQty: param.number(1),
+  dry: param.bool(true),
+  label: param.text('orders'),
+});
+```
+
+- **In the page,** a params bar shows a control for each one. A change reruns what reads it, and goes into the page's
+  address, so `…/app/?mode=full&minQty=5` opens the notebook with those values: a link shares them.
+- **Values from outside are text,** and each is checked: a choice not in the list, a number that isn't one, a date
+  that isn't `YYYY-MM-DD` is an error on the declaring cell, with the reason, until the value is changed.
+- **Outside a running notebook** (a library import, a plain run) `param()` gives the defaults.
+- A parameter is declared in one cell. Parameters work with guards: `when: () => params.mode === 'full'`.
 
 ## Guards
 

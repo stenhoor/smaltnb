@@ -58,12 +58,28 @@ try {
 
   await step('an edit reruns what follows it', async () => {
     const before = await gridRows('byRegion');
-    await setCell('params', (await cellText('params')).replace('minQty = 1', 'minQty = 5'));
+    await setCell('params', (await cellText('params')).replace('param.number(1)', 'param.number(5)'));
     await page.waitForFunction((b) => {
       const rows = [...document.querySelectorAll('[data-cell="byRegion"] tbody tr[data-row] td[data-col="1"]')].map((td) => td.textContent);
       return rows.length > 0 && JSON.stringify(rows) !== b;
     }, JSON.stringify(before.map((r) => r[1])), { timeout: 30000 });
     assert.equal(await status('byRegion'), 'ok');
+  });
+
+  await step('the params bar sets a parameter: what reads it reruns, and the value goes into the URL', async () => {
+    const qty = await page.inputValue('#params input[name="minQty"]');
+    assert.equal(qty, '5', 'the bar shows the default from the edited source');
+    const before = JSON.stringify(await gridRows('byRegion'));
+    await page.fill('#params input[name="minQty"]', '3');
+    await page.dispatchEvent('#params input[name="minQty"]', 'change');
+    await page.waitForFunction((b) => {
+      const rows = [...document.querySelectorAll('[data-cell="byRegion"] tbody tr[data-row]')].map((tr) => [...tr.querySelectorAll('td[data-col]')].map((td) => td.textContent));
+      return rows.length > 0 && JSON.stringify(rows) !== b;
+    }, before, { timeout: 30000 });
+    assert.match(page.url(), /[?&]minQty=3\b/);
+    await page.fill('#params input[name="minQty"]', '5');
+    await page.dispatchEvent('#params input[name="minQty"]', 'change');
+    await page.waitForFunction(() => !location.search.includes('minQty'));
   });
 
   await step('a write in a plain cell is held, and runs from its button', async () => {

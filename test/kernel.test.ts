@@ -1,12 +1,11 @@
 // Runs against the built package (dist/), imported by name.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { MessageChannel, Worker } from 'node:worker_threads';
-import ts from 'typescript';
+import { smaltty as ts } from 'smaltkit/typescript';
 import { KernelClient, type WorkerLike } from 'smaltnb/client';
-import { evaluateTypeScript, serveKernel, toDisplay, type CellView } from 'smaltnb/kernel';
+import { serveKernel, toDisplay, type CellView } from 'smaltnb/kernel';
 
 const example = readFileSync(new URL('../examples/regional.nb.ts', import.meta.url), 'utf8');
 
@@ -126,14 +125,6 @@ test('toDisplay sends values that can be cloned, and describes the rest', () => 
   class Frame { run() {} }
   assert.deepEqual(toDisplay({ f: () => 1 }), { kind: 'text', text: '[object]' });
   assert.deepEqual(toDisplay(new Frame()), { kind: 'value', value: {} }, 'class instances clone as plain objects');
-});
-
-test('evaluateTypeScript loads the compiler from the text of lib/typescript.js', () => {
-  const require = createRequire(import.meta.url);
-  const text = readFileSync(require.resolve('typescript/lib/typescript.js'), 'utf8');
-  const loaded = evaluateTypeScript(text);
-  assert.equal(loaded.version, ts.version);
-  assert.throws(() => evaluateTypeScript('var ts = {};'), /not the TypeScript compiler/);
 });
 
 test('a CellView has no values: they stay in the kernel', async () => {

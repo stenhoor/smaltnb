@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import ts from 'typescript';
+import { smaltty as ts } from 'smaltkit/typescript';
 import { parseNotebook, sqlBody, type Notebook } from 'smaltnb/format';
 
 const parse = (source: string): Notebook => parseNotebook(source, ts);
@@ -213,4 +213,27 @@ test('anything more than SQL keeps a cell TypeScript', () => {
   for (const c of cases) assert.equal(parse(sqlHeader + c).cells[1]!.sql, null, c);
   const aliased = parse("import { cell, sql as q2 } from 'smaltnb';\ncell('q', { lang: 'sql' });\nconst q = q2`SELECT 1`;");
   assert.equal(aliased.cells[1]!.sql, null, 'sql imported under another name');
+});
+
+test('syntax errors: the cell holding one is reported, and the rest of the notebook is read', () => {
+  const head = `import { cell } from 'smaltnb';\ncell('a'); export const a = 1;\n`;
+  const tail = `cell('c'); export const c = a + 1;\n`;
+  const cases: [string, string, string | undefined][] = [
+    ['an unfinished expression', `cell('b'); export const b = (a + ;\n`, 'b'],
+    ['a brace never closed', `cell('b');\nfunction f() {\n  return a;\n`, 'b'],
+    ['a broken cell() line', `cell('b', { run: });\nexport const b = 2;\n`, undefined],
+  ];
+  for (const [what, middle, cell] of cases) {
+    const nb = parse(head + middle + tail);
+    const ids = nb.cells.map((c) => c.id);
+    assert.ok(ids.includes('a') && ids.includes('c'), `${what}: ${ids}`);
+    const syntax = nb.diagnostics.filter((d) => d.code === 'syntax');
+    assert.equal(syntax.length, 1, what);
+    assert.equal(syntax[0]!.cell, cell, what);
+    assert.match(syntax[0]!.message, /line \d+, column \d+: /, what);
+    assert.deepEqual(nb.cells.find((c) => c.id === 'c')!.reads, ['a'], `${what}: later cells still read`);
+  }
+  // In the imports: the setup cell holds it.
+  const bad = parse(`import { cell } from 'smaltnb';\nimport { x from 'y';\ncell('a'); export const a = 1;\n`);
+  assert.equal(bad.diagnostics.find((d) => d.code === 'syntax')?.cell, 'setup');
 });

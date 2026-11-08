@@ -1,8 +1,9 @@
-// The kernel worker: runs cell code off the page (smaltnb/kernel). It loads the TypeScript compiler shipped with the
-// app, opens the notebook's database in its own engine worker, and gives cells smaltdf.
+// The kernel worker: runs cell code off the page (smaltnb/kernel). It reads and strips TypeScript with smaltty (from
+// smaltkit/typescript, bundled in), opens the notebook's database in its own engine worker, and gives cells smaltdf.
 import { open } from 'smaltdb';
 import * as df from '@smaltdb/df';
-import { loadTypeScript, serveKernel, type MessageEndpoint } from '../src/kernel.js';
+import { smaltty } from 'smaltkit/typescript';
+import { serveKernel, type MessageEndpoint } from '../src/kernel.js';
 import { seedDemo } from './demo-data.js';
 
 const here = (path: string) => new URL(path, self.location.href);
@@ -23,7 +24,7 @@ async function openDatabase() {
 }
 
 serveKernel(self as unknown as MessageEndpoint, {
-  ts: loadTypeScript(here('./vendor/typescript.js')),
+  ts: smaltty,
   importModule: async (spec) => (spec === '@smaltdb/df' ? (df as unknown as Record<string, unknown>) : import(/* @vite-ignore */ spec)),
   database: openDatabase,
   frame: df.table,

@@ -46,8 +46,8 @@ npm run docs:dev       # the docs site (VitePress) with live reload; docs:build 
 ## Rules for code here
 
 - Browser-first: `src/` uses no Node APIs and no DOM framework, and its output loads in a page without a bundler.
-- No runtime dependencies unless agreed. The TypeScript compiler is passed in by the caller (loaded at run time in
-  the browser, imported in Node), never imported by `src/` except as types.
+- No runtime dependencies unless agreed. smaltty, the TypeScript kit, is passed in by the caller (`smaltty` from
+  `smaltkit/typescript`), never imported by `src/` except as types.
 - smaltql and smaltdf are reached only through smaltdb's plan layer and language registry, never by importing their
   internals.
 - UI that smaltui or smaltbi could use belongs in smaltkit, not here (DESIGN.md decision 20).

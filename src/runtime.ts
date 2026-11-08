@@ -4,14 +4,14 @@
 //
 // With a database, cells get `db`, `sql` and `exec` (./sql.js): queries and smaltdf frames are collected into TEMP
 // tables when their cell finishes, and writes are checked by plan kind (./database.js). No worker or page here: those
-// wrap this. The TypeScript compiler is passed in, as for parseNotebook.
+// wrap this. smaltty (the TypeScript kit) is passed in, as for parseNotebook.
 
 import { action, cell } from './notebook.js';
 import { HeldWrite, NotebookDb, isFrame, type Rows, type WriteContext } from './database.js';
 import * as sqlModule from './sql.js';
 import { createParam, type ParamInfo, type ParamSpec } from './params.js';
 import { Relation, SqlQuery, registerCollected, statement, type CollectedTable } from './sql.js';
-import { parseNotebook, type Cell, type Diagnostic, type Notebook, type TypeScript } from './format.js';
+import { importSpecifiers, moduleOf, parseNotebook, type Cell, type Diagnostic, type Notebook, type TypeScriptKit } from './format.js';
 import { buildGraph, propagate, type Graph } from './graph.js';
 
 /**
@@ -48,7 +48,8 @@ export interface CellState {
 export type ModuleLoader = (specifier: string) => Promise<Record<string, unknown>>;
 
 export interface RuntimeOptions {
-  ts: TypeScript;
+  /** smaltty, the TypeScript kit: `smaltty` from smaltkit/typescript. */
+  ts: TypeScriptKit;
   /** Loads the modules the setup cell imports. `smaltnb` itself is built in. In a page: `(s) => import(s)`. */
   importModule?: ModuleLoader;
   fileName?: string;
@@ -99,7 +100,7 @@ function tableName(cell: string, name: string): string {
 }
 
 export class Runtime {
-  #ts: TypeScript;
+  #ts: TypeScriptKit;
   #options: RuntimeOptions;
   #source = '';
   #notebook!: Notebook;
@@ -420,7 +421,12 @@ export class Runtime {
     const cached = this.#compiled.get(c.id);
     if (cached?.key === key) return cached;
     const values = c.defines.filter((n) => !c.typeDefines.includes(n));
-    const fn = c.kind === 'setup' ? compileSetup(this.#ts, code, this.#builtins, this.#options.importModule) : compileCell(this.#ts, code, c.reads, values);
+    // The code is compiled where it is in the notebook (blank lines and columns before it), so a syntax error, or code
+    // that can't be stripped, gives the notebook's line and column.
+    const start = c.body?.start ?? 0;
+    const placed = '\n'.repeat(c.body ? c.body.line - 1 : 0) + ' '.repeat(start - (this.#source.lastIndexOf('\n', start - 1) + 1)) + code;
+    const fileName = this.#options.fileName ?? 'notebook.nb.ts';
+    const fn = c.kind === 'setup' ? compileSetup(this.#ts, placed, this.#builtins, this.#options.importModule, fileName) : compileCell(this.#ts, placed, c.reads, values, fileName);
     const guard = c.when ? compileGuard(this.#ts, c.when.text, c.when.reads) : null;
     const compiled = { key, fn, guard };
     this.#compiled.set(c.id, compiled);
@@ -433,37 +439,32 @@ export function createRuntime(source: string, options: RuntimeOptions): Runtime 
   return new Runtime(source, options);
 }
 
-function transpile(ts: TypeScript, code: string): string {
-  return ts.transpileModule(code, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, isolatedModules: true },
-    reportDiagnostics: false,
-  }).outputText;
-}
-
 /**
  * A cell's code as an async function: its exports become plain declarations, its last expression is captured as the
- * output, types are stripped, and it returns the values of the names it defines.
+ * output, types are stripped (to spaces, so lines and columns stay), and it returns the values of the names it defines.
  */
-function compileCell(ts: TypeScript, code: string, reads: string[], values: string[]): CellFn {
-  const sf = ts.createSourceFile('cell.ts', code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+function compileCell(ts: TypeScriptKit, code: string, reads: string[], values: string[], fileName: string): CellFn {
+  const t = ts.parse(code, { fileName });
   const edits: { start: number; end: number; text: string }[] = [];
-  sf.statements.forEach((st, i) => {
-    if (ts.isExportDeclaration(st) && !st.moduleSpecifier) {
-      edits.push({ start: st.getStart(sf), end: st.getEnd(), text: '' });
+  const statements = t.children(t.root);
+  statements.forEach((st, i) => {
+    const kind = t.kind[st]!;
+    if (kind === ts.K.ExportDeclaration && !t.children(st).some((c) => t.kind[c] === ts.K.StringLiteral)) {
+      edits.push({ start: t.start[st]!, end: t.end[st]!, text: '' });
       return;
     }
-    if (ts.canHaveModifiers(st)) {
-      for (const m of ts.getModifiers(st) ?? []) {
-        if (m.kind === ts.SyntaxKind.ExportKeyword) edits.push({ start: m.getStart(sf), end: m.getEnd(), text: '' });
-      }
+    // `export` is a declaration's first token (modifiers come before the rest).
+    if (t.flags[st]! & ts.F.Export && code.startsWith('export', t.start[st]!)) {
+      edits.push({ start: t.start[st]!, end: t.start[st]! + 6, text: '      ' });
     }
-    if (i === sf.statements.length - 1 && ts.isExpressionStatement(st)) {
-      edits.push({ start: st.expression.getStart(sf), end: st.expression.getEnd(), text: `__nb_out = (${st.expression.getText(sf)})` });
+    if (i === statements.length - 1 && kind === ts.K.ExpressionStatement) {
+      const e = t.first[st]!;
+      edits.push({ start: t.start[e]!, end: t.end[e]!, text: `__nb_out = (${t.textOf(e)})` });
     }
   });
   let edited = code;
   for (const e of edits.sort((a, b) => b.start - a.start)) edited = edited.slice(0, e.start) + e.text + edited.slice(e.end);
-  const js = transpile(ts, edited);
+  const js = ts.strip(edited, { fileName });
   const body = [
     '"use strict";',
     reads.length ? `const { ${reads.join(', ')} } = __nb_in;` : '',
@@ -475,26 +476,24 @@ function compileCell(ts: TypeScript, code: string, reads: string[], values: stri
 }
 
 /** The setup cell's imports, loaded with the module loader (`smaltnb` is built in). Type-only imports are dropped. */
-function compileSetup(ts: TypeScript, code: string, builtins: Record<string, Record<string, unknown>>, load: ModuleLoader | undefined): CellFn {
-  const sf = ts.createSourceFile('setup.ts', code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+function compileSetup(ts: TypeScriptKit, code: string, builtins: Record<string, Record<string, unknown>>, load: ModuleLoader | undefined, fileName: string): CellFn {
+  const t = ts.parse(code, { fileName });
   const imports: { spec: string; bind: (m: Record<string, unknown>, out: Record<string, unknown>) => void }[] = [];
-  for (const st of sf.statements) {
-    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
-    const clause = st.importClause;
-    if (clause?.isTypeOnly) continue;
-    const spec = st.moduleSpecifier.text;
+  for (const st of t.children(t.root)) {
+    if (t.kind[st] !== ts.K.ImportDeclaration) continue;
+    const names = importSpecifiers(t, ts, st).filter((n) => !n.typeOnly);
+    const clause = t.children(st).find((c) => t.kind[c] === ts.K.ImportClause);
+    if (clause && t.flags[clause]! & ts.F.TypeOnly) continue; // import type …: nothing to load
+    const spec = moduleOf(t, ts, st);
     imports.push({
       spec,
       bind: (m, out) => {
-        if (clause?.name) out[clause.name.text] = m.default;
-        const nb = clause?.namedBindings;
-        if (nb && ts.isNamespaceImport(nb)) out[nb.name.text] = m;
-        if (nb && ts.isNamedImports(nb)) {
-          for (const el of nb.elements) {
-            if (el.isTypeOnly) continue;
-            const imported = (el.propertyName ?? el.name).text;
-            if (!(imported in m)) throw new Error(`'${spec}' has no export named '${imported}'.`);
-            out[el.name.text] = m[imported];
+        for (const n of names) {
+          if (n.imported === 'default') out[n.local] = m.default;
+          else if (n.imported === '*') out[n.local] = m;
+          else {
+            if (!(n.imported in m)) throw new Error(`'${spec}' has no export named '${n.imported}'.`);
+            out[n.local] = m[n.imported];
           }
         }
       },
@@ -513,8 +512,8 @@ function compileSetup(ts: TypeScript, code: string, builtins: Record<string, Rec
   };
 }
 
-function compileGuard(ts: TypeScript, text: string, reads: string[]): GuardFn {
-  const js = transpile(ts, `(${text})`).trim().replace(/;$/, '');
+function compileGuard(ts: TypeScriptKit, text: string, reads: string[]): GuardFn {
+  const js = ts.strip(`(${text})`, { fileName: 'guard.ts' }).trim().replace(/;$/, '');
   const body = ['"use strict";', reads.length ? `const { ${reads.join(', ')} } = __nb_in;` : '', `return !!(await (${js})());`].join('\n');
   return new AsyncFunction('__nb_in', body) as GuardFn;
 }

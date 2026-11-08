@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import ts from 'typescript';
+import { smaltty as ts } from 'smaltkit/typescript';
 import { createRuntime, type CellState, type RuntimeOptions } from 'smaltnb/runtime';
 
 const example = readFileSync(new URL('../examples/regional.nb.ts', import.meta.url), 'utf8');
@@ -139,12 +139,12 @@ cell('a'); const a = nope;`, { importModule: async () => ({}) });
   assert.equal(rt.state('a')!.status, 'stale');
 });
 
-test('TypeScript compiles: types are stripped, enums and classes run, exports become plain names', async () => {
+test('TypeScript runs: types are stripped, classes run, exports become plain names', async () => {
   const rt = runtime(`import { cell } from 'smaltnb';
 cell('a');
 export interface P { x: number }
-export enum Color { Red, Green }
-export class Box<T> { constructor(readonly v: T) {} }
+export const Color = { Red: 0, Green: 1 } as const;
+export class Box<T> { readonly v: T; constructor(v: T) { this.v = v; } }
 const values = [1, 2];
 export { values };
 cell('b'); const total: number = values.reduce((s, v) => s + v, 0) + Color.Green + new Box<number>(10).v;
@@ -153,6 +153,37 @@ total;`);
   assert.deepEqual(status(rt), { setup: 'ok', a: 'ok', b: 'ok' });
   assert.equal(rt.state('b')!.output, 14);
   assert.deepEqual(Object.keys(rt.state('a')!.values).sort(), ['Box', 'Color', 'values'], 'P is a type, not a value');
+});
+
+test('code that would need compiling (an enum) is an error on its cell, with where and what to write', async () => {
+  const rt = runtime(`import { cell } from 'smaltnb';
+cell('a'); export const one = 1;
+cell('b');
+enum Color { Red, Green }
+export const green = Color.Green;
+cell('c'); export const two = one + 1;`);
+  await rt.runAll();
+  assert.deepEqual(status(rt), { setup: 'ok', a: 'ok', b: 'error', c: 'ok' });
+  assert.match(rt.state('b')!.error!.message, /^notebook\.nb\.ts, line 4, column 1: An enum makes code.*as const/, 'the notebook\'s line and column');
+});
+
+test('a syntax error stops only its cell: the others are read and run', async () => {
+  const rt = runtime(`import { cell } from 'smaltnb';
+cell('a'); export const one = 1;
+cell('b'); export const broken = (one + ;
+cell('c'); export const two = one + 1;
+two;`);
+  await rt.runAll();
+  assert.deepEqual(status(rt), { setup: 'ok', a: 'ok', b: 'error', c: 'ok' });
+  assert.equal(rt.state('c')!.output, 2);
+  assert.match(rt.state('b')!.error!.message, /line 3, column \d+: /);
+  const syntax = rt.diagnostics.find((d) => d.code === 'syntax');
+  assert.equal(syntax?.cell, 'b');
+  assert.equal(syntax?.span?.line, 3);
+  // Fixed, it runs.
+  await rt.update(rt.source.replace('(one + ;', '(one + 1);'));
+  await rt.run(['b']);
+  assert.equal(rt.value('broken'), 2);
 });
 
 test('top-level await works in a cell and in a guard', async () => {

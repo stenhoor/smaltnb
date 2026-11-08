@@ -63,15 +63,15 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "esbuild": "^0.25.12",
-    "smaltkit": "github:stenhoor/smaltkit#a70e29e6a355773e6981b26031d474177cc563e9",
+    "smaltkit": "github:stenhoor/smaltkit#b3f4ce26e0fc4a8d9c29dd40f343c7216a9e198e",
     "typescript": "~5.9.0",
     "vitepress": "^1.6.4"
   },
   "peerDependencies": {
-    "typescript": ">=5.5.0"
+    "smaltkit": "*"
   },
   "peerDependenciesMeta": {
-    "typescript": {
+    "smaltkit": {
       "optional": true
     }
   }

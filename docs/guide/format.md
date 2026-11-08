@@ -70,9 +70,13 @@ An action has no `run`, `store` or `live`: it never reruns on its own.
 
 ## Names and the graph
 
-`parseNotebook(source, ts)` resolves names with the TypeScript compiler, so it sees what TypeScript sees: a parameter or
-property named like a top-level value is not a read, `{ raw }` is, and a name used only as a type (`o: Order`,
-`implements Shape`) is a type read, which matters to the compiler but not to a run.
+`parseNotebook(source, ts)` resolves names with smaltty's binder (`ts` is `smaltty` from `smaltkit/typescript`), which
+follows TypeScript's scoping rules, so it sees what TypeScript sees: a parameter or property named like a top-level
+value is not a read, `{ raw }` is, and a name used only as a type (`o: Order`, `implements Shape`) is a type read, which
+matters to the type checker but not to a run.
+
+A syntax error doesn't lose the notebook: the cell that holds it gets a `syntax` diagnostic with its line and column,
+runs nothing until it's fixed, and the other cells are read as usual.
 
 For each cell it gives `defines` (and `typeDefines`, the names that exist only as types), `exports`, `reads`,
 `typeReads`, the guard's reads, its options and its spans.

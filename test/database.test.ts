@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MessageChannel } from 'node:worker_threads';
-import ts from 'typescript';
+import { smaltty as ts } from 'smaltkit/typescript';
 import { Database, registerLanguage } from 'smaltdb/engine';
 import { sqlLanguage } from 'smaltql';
 import { dfLanguage, table } from '@smaltdb/df';

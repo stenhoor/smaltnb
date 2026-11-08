@@ -15,7 +15,7 @@ not aim to be a port of any of them.
 | 1 | Positioning | "Reactive notebooks for smaltdb." (owner, 2026-11-07: one wording everywhere; not "in TypeScript", since SQL cells aren't TypeScript). Credit once: "Inspired by marimo, Jupyter and JupyterLab." |
 | 2 | File format | A notebook is a `.nb.ts` file, a valid TypeScript module that `tsc` checks as written. It is the only source format. Markdown is an export (`smaltnb export --md`), not a second source. |
 | 3 | Cells | `cell(name, options?)` statements split ordinary top-level code into cells. Code before the first cell is the setup cell: imports only. Options are typed: `lang`, `run`, `when`, `store`, `live`, `hide`. |
-| 4 | Graph | Edges come from the top-level names each cell defines and reads, found with the TypeScript compiler. A name is defined in one cell (TypeScript enforces this) and assigned only in that cell. The file reads top to bottom: a cell may not read a name defined further down, except a function declaration. |
+| 4 | Graph | Edges come from the top-level names each cell defines and reads, found with smaltty's binder (TypeScript's scoping rules; the TypeScript compiler until 2026-11-08). A name is defined in one cell (TypeScript enforces this) and assigned only in that cell. The file reads top to bottom: a cell may not read a name defined further down, except a function declaration. |
 | 5 | Run modes | `auto` reruns dependents, `lazy` marks them stale, `manual` runs only on request. |
 | 6 | Guards | `when: () => boolean`, evaluated before the cell runs. Its reads are graph edges. A false guard skips the cell and its dependents, which keep their last results, marked stale. |
 | 7 | Side effects | Defined by plan kind, not by language: any plan that is not read-only is a write, checked in one place, the notebook's database handle. Frame transformations are not writes. The notebook's own collected results are not user writes. |
@@ -33,7 +33,7 @@ not aim to be a port of any of them.
 | 18 | Where it runs | The browser first. Node and GitHub Actions later, without designing them out: cell code gets no DOM, and the database, file store and git sit behind interfaces. |
 | 19 | Credentials | Secrets stay secret. A notebook declares what it needs, never a value (`credential(name, { kind, endpoint })`); SQL connections refer to it by name. The app registers values with the engine; cell code never sees them. Browser v1: session memory and autofill-friendly forms; later a passkey-unlocked vault and provider sign-in. Node and Actions: environment variables, cloud SDK credential lookup, OIDC. |
 | 20 | Shared UI | Charts, tables and editors, and as much other UI as possible, are shared by smaltui, smaltbi and smaltnb in smaltkit. smaltnb keeps only what is notebook-specific: cell chrome, the graph view, run state. |
-| 21 | Editor | smaltui's dependency-free editor, moved to `smaltkit/editor` and extended to TypeScript. The TypeScript compiler is loaded at run time, as `smaltkit/engine` loads smaltdb. |
+| 21 | Editor | smaltui's dependency-free editor, moved to `smaltkit/editor` and extended to TypeScript. TypeScript is read and stripped by smaltty, our own TypeScript kit, from `smaltkit/typescript` (the owner's decision of 2026-11-08, in smalt-brand DECISIONS.md, "smaltty"; until then the TypeScript compiler was loaded at run time). Types are removed, never compiled: TypeScript's `erasableSyntaxOnly`. |
 | 22 | Charts and tables | `smaltkit/charts`, moved from smaltbi's `src/visuals/`. Two table components for now: `smaltkit/grid` (smaltui's grid) for exploring rows, smaltbi's table and matrix as chart types. |
 | 23 | smaltts | Decided later. Another plan-layer language can join without a format change. |
 
@@ -72,8 +72,8 @@ await clean.insertInto(db, 'orders_clean');
 ## Runtime
 
 Three threads: the page (editor, grid, charts, controls), a kernel worker that runs cell code, and the smaltdb worker,
-which registers smaltql and smaltdf. Cells are transpiled and run as async functions that receive their inputs and
-return their definitions. Results cross as columnar typed arrays. A runaway cell is stopped by restarting the kernel,
+which registers smaltql and smaltdf. Cells have their types stripped (by smaltty) and run as async functions that
+receive their inputs and return their definitions. Results cross as columnar typed arrays. A runaway cell is stopped by restarting the kernel,
 without losing the database.
 
 ## Order of work

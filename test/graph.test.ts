@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import ts from 'typescript';
+import { smaltty as ts } from 'smaltkit/typescript';
 import { parseNotebook } from 'smaltnb/format';
 import { buildGraph, downstream, exportClosure, propagate, upstream, type Graph } from 'smaltnb/graph';
 import * as nb from 'smaltnb';

@@ -5,11 +5,11 @@ runs use. Given a database, it runs SQL and smaltdf cells ([below](#the-database
 [milestone 1](./status).
 
 ```ts
-import ts from 'typescript';
+import { smaltty } from 'smaltkit/typescript';
 import { createRuntime } from 'smaltnb/runtime';
 
 const rt = createRuntime(source, {
-  ts,                                   // the TypeScript compiler: imported in Node, loaded at run time in a page
+  ts: smaltty,                          // smaltty, the TypeScript kit: reads, binds and strips TypeScript
   importModule: (spec) => import(spec), // loads what the setup cell imports; smaltnb itself is built in
   onChange: (state) => render(state),   // a copy of a cell's state whenever it changes
 });
@@ -27,6 +27,16 @@ rt.states();                             // every cell's state, in file order
 Each cell is compiled once (until its code changes) to an async function. It receives the names it reads, and returns
 the names it defines and the value of its last expression, its output. Types are stripped, `export` is dropped (the
 names stay visible to the rest of the notebook), and top-level `await` works in cells and in guards.
+
+Types are stripped by smaltty: replaced with spaces, never compiled (TypeScript's `erasableSyntaxOnly`). Code that would
+need compiling is an error on its cell, with the notebook's line and column and what to write instead:
+
+| Instead of | Write |
+| --- | --- |
+| `enum Color { Red, Green }` | `const Color = { Red: 'red', Green: 'green' } as const` |
+| `<number>x` | `x as number` |
+| `constructor(private n: number) {}` | a field `n: number`, assigned in the constructor |
+| `namespace N { export const x = 1 }` | an object: `const N = { x: 1 }` |
 
 The setup cell loads its imports with `importModule`. `import type` and type-only names are dropped.
 
@@ -73,8 +83,9 @@ stopped. `smaltnb/kernel` serves the runtime in the worker; `smaltnb/client` is 
 
 ```ts
 // kernel-worker.ts
-import { serveKernel, loadTypeScript } from 'smaltnb/kernel';
-serveKernel(self, { ts: loadTypeScript(), importModule: (spec) => import(spec) });
+import { serveKernel } from 'smaltnb/kernel';
+import { smaltty } from 'smaltkit/typescript';
+serveKernel(self, { ts: smaltty, importModule: (spec) => import(spec) });
 ```
 
 ```ts
@@ -98,8 +109,8 @@ await kernel.restart();   // stop a run that never finishes
   while a long cell is running.
 - **Values stay in the kernel.** The page gets each cell's state and its output: the value itself when it can be cloned
   across, otherwise a description such as `[function load]`.
-- **The TypeScript compiler** is loaded in the worker at run time: `loadTypeScript()` fetches `lib/typescript.js`
-  (from jsDelivr by default, or the app's own copy) and evaluates it, with no bundler.
+- **TypeScript** is read and stripped in the worker by smaltty, bundled into it from `smaltkit/typescript`: 35 KB
+  gzipped, with nothing to fetch, where the TypeScript compiler it replaces was 8.7 MB loaded at run time.
 
 ## The database
 

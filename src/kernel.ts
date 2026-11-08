@@ -4,20 +4,18 @@
 //
 // In the app's worker file:
 //
-//   import { serveKernel, loadTypeScript } from 'smaltnb/kernel';
+//   import { serveKernel } from 'smaltnb/kernel';
+//   import { smaltty } from 'smaltkit/typescript';
 //   import { open } from 'smaltql';
 //   import { table } from '@smaltdb/df';
-//   serveKernel(self, { ts: loadTypeScript(), importModule: (spec) => import(spec), database: () => open('notebook'), frame: table });
+//   serveKernel(self, { ts: smaltty, importModule: (spec) => import(spec), database: () => open('notebook'), frame: table });
 
-import { parseNotebook, type Cell, type Diagnostic, type TypeScript } from './format.js';
+import { parseNotebook, type Cell, type Diagnostic, type TypeScriptKit } from './format.js';
 import { buildGraph, type Edge } from './graph.js';
 import { createRuntime, type CellState, type ModuleLoader, type Runtime } from './runtime.js';
 import type { Rows } from './database.js';
 import type { CollectedTable } from './sql.js';
 import type { ParamInfo } from './params.js';
-
-/** Where the TypeScript compiler is loaded from by default: the version smaltnb is built and tested with. */
-export const TYPESCRIPT_URL = 'https://cdn.jsdelivr.net/npm/typescript@5.9.3/lib/typescript.js';
 
 /** The end of a message channel: a worker's `self`, a `MessagePort`, or anything shaped like them. */
 export interface MessageEndpoint {
@@ -71,8 +69,8 @@ export type Reply =
   | { type: 'failed'; id: number; message: string };
 
 export interface KernelOptions {
-  /** The TypeScript compiler, or a promise of it (see `loadTypeScript`). */
-  ts: TypeScript | Promise<TypeScript>;
+  /** smaltty, the TypeScript kit (`smaltty` from smaltkit/typescript), or a promise of it. */
+  ts: TypeScriptKit | Promise<TypeScriptKit>;
   /** Loads what notebooks import. In a worker: `(spec) => import(spec)`. */
   importModule?: ModuleLoader;
   /** Opens the notebook's database, once: a smaltdb `Database` with smaltql and smaltdf registered. */
@@ -91,7 +89,7 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
   let fileName: string | undefined;
   let queue: Promise<unknown> = Promise.resolve();
 
-  const describe = (ts: TypeScript, source: string): NotebookView => {
+  const describe = (ts: TypeScriptKit, source: string): NotebookView => {
     const graph = buildGraph(parseNotebook(source, ts, { fileName }));
     return { cells: graph.cells, edges: graph.edges, order: graph.order, diagnostics: graph.diagnostics };
   };
@@ -173,22 +171,4 @@ function describeValue(value: unknown): string {
     return name && name !== 'Object' ? `[${name}]` : '[object]';
   }
   return String(value);
-}
-
-/**
- * Evaluates the text of TypeScript's `lib/typescript.js` and returns the compiler. The file declares `var ts` and only
- * writes `module.exports` when `module` exists, so it can be evaluated in a function scope, in a module worker, with
- * no bundler.
- */
-export function evaluateTypeScript(text: string): TypeScript {
-  const ts = new Function(`${text}\nreturn ts;`)() as TypeScript;
-  if (!ts || typeof ts.createSourceFile !== 'function') throw new Error('This file is not the TypeScript compiler (lib/typescript.js).');
-  return ts;
-}
-
-/** Fetches and evaluates the TypeScript compiler: from jsDelivr by default, or the app's own copy. */
-export async function loadTypeScript(url: string | URL = TYPESCRIPT_URL): Promise<TypeScript> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Couldn't load the TypeScript compiler from ${url}: HTTP ${res.status}.`);
-  return evaluateTypeScript(await res.text());
 }

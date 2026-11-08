@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: 'sm<span class="alt">alt</span><span class="suffix tool">nb</span>'
-  text: Small. Alternative. Notebooks.
+  text: 'Small. Alternative.<br>Notebooks.'
   tagline: Reactive notebooks for smaltdb.
   image:
     light: /pencil-mark.svg

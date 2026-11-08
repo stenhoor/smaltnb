@@ -6,4 +6,5 @@ export * from './runtime.js';
 export * from './kernel.js';
 export * from './client.js';
 export * from './sql.js';
+export * from './md.js';
 export * from './database.js';

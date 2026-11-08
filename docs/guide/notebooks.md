@@ -45,7 +45,7 @@ await deleteFrom('orders_clean').run(db);
 await clean.insertInto(db, 'orders_clean');
 ```
 
-`cell()`, `action()`, `sql`, `exec`, `db` and `param` exist today; `md`, `ui` and `chart` are *planned*.
+`cell()`, `action()`, `sql`, `exec`, `db`, `param` and `md` exist today; `ui` and `chart` are *planned*.
 [examples/shop.nb.ts](../../examples/shop.nb.ts) is a notebook with SQL and smaltdf that typechecks and runs now.
 
 ## Reactive

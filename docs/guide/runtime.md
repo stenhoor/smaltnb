@@ -161,5 +161,5 @@ await exec`INSERT INTO region_totals SELECT * FROM ${byRegion}`;
 *Not yet:* through smaltdb's worker client, SQL text can't be classified until smaltdb reports whether a statement is
 read-only there (in process it does), so until then `exec` counts as a write and a query as a read. Cells that read a
 table an action wrote don't go stale yet: that needs plans to say which tables they read and write. Both are listed
-in the [design](../DESIGN#needed-from-other-repositories). *Planned:* `md`. [The notebook page](./page) puts all of
+in the [design](../DESIGN#needed-from-other-repositories). [The notebook page](./page) puts all of
 this in a browser.

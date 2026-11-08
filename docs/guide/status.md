@@ -6,7 +6,7 @@ smaltnb is in early development and not published. This page says what is in, as
 | Step | What | State |
 |---|---|---|
 | 0 | **Format and graph**: the `.nb.ts` parser, the graph, the rules and their diagnostics | In ([the format](./format)) |
-| 1 | **Run**: [the runtime](./runtime), [the kernel](./runtime#the-kernel), [the database](./runtime#the-database) and [the notebook page](./page) | In, except `md` |
+| 1 | **Run**: [the runtime](./runtime), [the kernel](./runtime#the-kernel), [the database](./runtime#the-database) and [the notebook page](./page) | In |
 | 2 | **Git**: a repository in the browser (OPFS), synced with GitHub; per-cell diffs and commits | Planned |
 | 3 | **Libraries**: notebook imports, the typed factory, `smaltnb build` | Planned |
 | 4 | **Types and UI**: pinned row types, `ui.*` controls, charts, the on-disk result store | Planned |

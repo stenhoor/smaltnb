@@ -1,7 +1,11 @@
 // A notebook with SQL and dataframes on a smaltdb database: smaltdf reads a table, SQL summarises the collected
 // frame, and an action saves the summary. It typechecks with tsc as written, and runs (see test/database.test.ts).
-import { cell, action, sql, exec, param } from 'smaltnb';
+import { cell, action, sql, exec, param, md } from 'smaltnb';
 import { col, table } from '@smaltdb/df';
+
+cell('intro', { lang: 'md' });
+md`# Shop analysis
+Revenue by region from the **orders** table. Change *minQty* in the parameters bar: the cells that read it run again.`;
 
 cell('params');
 export const params = param({ minQty: param.number(1) });

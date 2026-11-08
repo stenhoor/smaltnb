@@ -12,6 +12,9 @@ opens a demo notebook over a small `orders` table and runs it.
   is saved in the file in its TypeScript form, `` export const name = sql`…`; `` (see
   [plain SQL cells](./format#plain-sql-cells)). **TS** on a SQL cell shows that TypeScript, and **SQL** goes back.
   A cell that holds more than SQL shows as TypeScript.
+- **Text cells** (`lang: 'md'`) show their Markdown to edit, rendered below. `${value}` puts a notebook value in the
+  text, so prose follows the parameters. **TS** shows the TypeScript, **MD** goes back. Raw HTML in the text shows as
+  text.
 - **Source** shows the whole notebook as its `.nb.ts` file, editable; **Cells** goes back.
 - **Parameters** declared with `param()` show in a bar under the header. A change reruns what reads them and goes into
   the page's address (`?minQty=5`), so a link opens the notebook with those values.
@@ -24,7 +27,7 @@ opens a demo notebook over a small `orders` table and runs it.
   large result stays cheap. **Download CSV** saves every row.
 - **Restart** stops a cell that never finishes, by replacing the kernel. The cells' results are lost and the database
   is kept.
-- **+ SQL**, **+ Cell** and **+ Action** add a SQL cell, a TypeScript cell or an action at the end. **Open…** loads a `.nb.ts` file, **Download** saves the notebook
+- **+ SQL**, **+ Text**, **+ Cell** and **+ Action** add a SQL cell, a text cell, a TypeScript cell or an action at the end. **Open…** loads a `.nb.ts` file, **Download** saves the notebook
   as one, and **Demo** brings the demo back.
 
 The notebook you're working on is kept in this browser, and its database in the browser's private storage (OPFS); in
@@ -32,7 +35,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-These are planned: notebooks in git, the graph view, `md`, `ui` and charts, type pinning, and completion from
+These are planned: notebooks in git, the graph view, `ui` and charts, type pinning, and completion from
 a TypeScript language service. See [Status](./status).
 
 ## Run it locally

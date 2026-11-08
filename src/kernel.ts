@@ -15,6 +15,7 @@ import { buildGraph, type Edge } from './graph.js';
 import { createRuntime, type CellState, type ModuleLoader, type Runtime } from './runtime.js';
 import type { Rows } from './database.js';
 import type { CollectedTable } from './sql.js';
+import { Markdown } from './md.js';
 import type { ParamInfo } from './params.js';
 
 /** The end of a message channel: a worker's `self`, a `MessagePort`, or anything shaped like them. */
@@ -29,7 +30,9 @@ export type Display =
   | { kind: 'value'; value: unknown }
   | { kind: 'text'; text: string }
   /** A collected result: its table and first rows; fetch more with `rows`. */
-  | { kind: 'table'; table: CollectedTable; preview: Rows };
+  | { kind: 'table'; table: CollectedTable; preview: Rows }
+  /** Markdown text (md`…`), for the page to render. */
+  | { kind: 'markdown'; text: string };
 
 /** A cell's state as the page sees it: its values stay in the kernel. */
 export interface CellView {
@@ -146,6 +149,7 @@ export function view(state: CellState): CellView {
   return {
     id: state.id, status: state.status, reason: state.reason, error: state.error, ms: state.ms, runs: state.runs,
     output: state.outputTable ? { kind: 'table', table: tableInfo(state.outputTable), preview: state.outputTable.preview }
+      : state.hasOutput && state.runs > 0 && state.output instanceof Markdown ? { kind: 'markdown', text: state.output.text }
       : state.hasOutput && state.runs > 0 ? toDisplay(state.output) : { kind: 'none' },
   };
 }

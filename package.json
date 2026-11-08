@@ -25,6 +25,10 @@
       "types": "./dist/params.d.ts",
       "default": "./dist/params.js"
     },
+    "./md": {
+      "types": "./dist/md.d.ts",
+      "default": "./dist/md.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "default": "./dist/runtime.js"

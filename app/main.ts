@@ -11,6 +11,8 @@ import type { CellView, NotebookView } from '../src/kernel.js';
 import type { ParamInfo } from '../src/params.js';
 import { sqlBody, type SqlView } from '../src/format.js';
 import { sqlCellLanguage } from './sql-language.js';
+import { markdownLanguage } from './md-language.js';
+import { markdown } from 'smaltkit/markdown';
 
 const STORE = 'smaltnb:source';
 const NAME = 'smaltnb:name';
@@ -60,11 +62,13 @@ function split(src: string, nb: NotebookView): { id: string; text: string; start
 
 /** What a plain SQL cell's editor shows: the query, or an action's statements, each ending in a semicolon. */
 function sqlText(view: SqlView): string {
+  if (view.kind === 'md') return view.text.trim();
   return view.kind === 'query' ? view.text.trim() : view.statements.map((st) => `${st.trim()};`).join('\n\n');
 }
 
 /** A plain SQL cell's view with the SQL from its editor. */
 function withSql(view: SqlView, text: string): SqlView {
+  if (view.kind === 'md') return { kind: 'md', text };
   return view.kind === 'query'
     ? { ...view, text }
     : { kind: 'script', statements: splitStatements(text).map((st) => st.sql) };
@@ -160,7 +164,7 @@ function render() {
     const actions = document.createElement('span');
     actions.className = 'actions';
     head.append(title, kind, status, reason, actions);
-    if (meta.sql) head.append(toggle(chunk.id));
+    if (meta.sql) head.append(toggle(chunk.id, meta.sql.kind === 'md'));
     const edHost = document.createElement('div');
     edHost.className = 'cell-editor';
     // A plain SQL cell shows its SQL; its cell() line is kept as written and the rest is written back from the SQL.
@@ -168,7 +172,7 @@ function render() {
     const head0 = view && meta.body ? chunk.text.slice(0, meta.body.start - chunk.start).trimEnd() : chunk.text.trimEnd();
     if (view) root.classList.add('sql-view');
     const editor = new Editor(edHost, {
-      language: view ? sqlCellLanguage : typescriptLanguage,
+      language: view ? (view.kind === 'md' ? markdownLanguage : sqlCellLanguage) : typescriptLanguage,
       value: view ? sqlText(view) : chunk.text.replace(/\n+$/, ''),
       label: view ? `SQL of cell ${chunk.id}` : `Cell ${chunk.id}`,
       onChange: () => edited(),
@@ -210,9 +214,10 @@ function currentSource(): string {
 }
 
 /** The TS / SQL switch on a plain SQL cell. */
-function toggle(id: string): HTMLButtonElement {
+function toggle(id: string, isText: boolean): HTMLButtonElement {
   const showing = showTs.has(id);
-  const b = button(showing ? 'SQL' : 'TS', showing ? 'Show the SQL' : 'Show the TypeScript this cell is saved as', async () => {
+  const back = isText ? 'MD' : 'SQL';
+  const b = button(showing ? back : 'TS', showing ? `Show the ${isText ? 'Markdown' : 'SQL'}` : 'Show the TypeScript this cell is saved as', async () => {
     await flush();
     if (showing) showTs.delete(id);
     else showTs.add(id);
@@ -328,6 +333,13 @@ function showOutput(c: CellUi, s: CellView) {
     });
     return;
   }
+  if (out.kind === 'markdown') {
+    const div = document.createElement('div');
+    div.className = 'sk-md markdown';
+    div.innerHTML = markdown(out.text); // escaped: raw HTML shows as text
+    c.output.append(div);
+    return;
+  }
   if (out.kind === 'value' || out.kind === 'text') {
     const pre = document.createElement('pre');
     pre.className = 'value';
@@ -378,13 +390,15 @@ async function load(src: string, name: string, params: Record<string, string> = 
   await kernel.runAll().catch((err: Error) => toast(err.message, 'error'));
 }
 
-function addCell(kind: 'cell' | 'action' | 'sql') {
-  const prefix = kind === 'sql' ? 'query' : kind;
+function addCell(kind: 'cell' | 'action' | 'sql' | 'md') {
+  const prefix = kind === 'sql' ? 'query' : kind === 'md' ? 'text' : kind;
   const ids = new Set(chunks.map((c) => c.id));
   let n = chunks.length;
   while (ids.has(`${prefix}${n}`)) n++;
   const id = `${prefix}${n}`;
-  const added = kind === 'sql'
+  const added = kind === 'md'
+    ? `cell('${id}', { lang: 'md' });\n${sqlBody({ kind: 'md', text: 'Write here: **Markdown**.' })}`
+    : kind === 'sql'
     ? `cell('${id}', { lang: 'sql' });\n${sqlBody({ kind: 'query', name: id, exported: true, rowType: null, text: 'SELECT 1 AS one', output: true })}`
     : `${kind}('${id}');`;
   source = currentSource() + `\n${added}\n`;
@@ -403,6 +417,7 @@ $('#restart').addEventListener('click', async () => {
 $('#add-cell').addEventListener('click', () => addCell('cell'));
 $('#add-action').addEventListener('click', () => addCell('action'));
 $('#add-sql').addEventListener('click', () => addCell('sql'));
+$('#add-md').addEventListener('click', () => addCell('md'));
 const sourceButton = $<HTMLButtonElement>('#source');
 sourceButton.addEventListener('click', async () => {
   await flush();

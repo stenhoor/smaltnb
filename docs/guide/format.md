@@ -50,8 +50,16 @@ await exec`INSERT INTO region_totals SELECT region, revenue FROM ${byRegion}`;
 - Anything else in the cell, between its `cell()` line and the next cell (a comment, another statement, `sql` imported
   under another name), makes it a TypeScript cell, shown as such, so nothing is hidden or lost.
 
-`parseNotebook` gives a plain SQL cell's content as `cell.sql` (`{ kind: 'query', name, exported, rowType, text, output }`
-or `{ kind: 'script', statements }`), and `sqlBody(view)` writes the code back.
+A **plain text cell** is a `lang: 'md'` cell whose code is only `` md`…`; ``: the page shows its Markdown and renders it.
+
+```ts
+cell('intro', { lang: 'md' });
+md`# Shop analysis
+Revenue by region, for orders of at least ${params.minQty}.`;
+```
+
+`parseNotebook` gives a plain cell's content as `cell.sql` (`{ kind: 'query', name, exported, rowType, text, output }`,
+`{ kind: 'script', statements }` or `{ kind: 'md', text }`), and `sqlBody(view)` writes the code back.
 
 ## Options
 

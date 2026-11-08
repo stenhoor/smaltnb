@@ -83,8 +83,9 @@ try {
   });
 
   await step('a write in a plain cell is held, and runs from its button', async () => {
+    const before = await page.evaluate(() => document.querySelectorAll('.cell').length);
     await page.click('#add-cell');
-    await page.waitForFunction(() => document.querySelectorAll('.cell').length === 6);
+    await page.waitForFunction((n) => document.querySelectorAll('.cell').length === n + 1, before);
     const id = await page.evaluate(() => [...document.querySelectorAll('.cell')].at(-1).dataset.cell);
     await setCell(id, `cell('${id}');\nawait exec\`INSERT INTO region_totals VALUES ('test', 1)\`;`);
     await until(id, 'held');
@@ -140,6 +141,22 @@ try {
     assert.equal(await cellText(id), 'SELECT 1 AS one');
     await until(id, 'ok');
     assert.deepEqual(await gridRows(id), [['1']]);
+  });
+
+  await step('a text cell shows its Markdown to edit and renders it below; + Text adds one', async () => {
+    assert.match(await cellText('intro'), /^# Shop analysis\nRevenue by region from the \*\*orders\*\* table/);
+    assert.equal(await page.textContent('[data-cell="intro"] .markdown h1'), 'Shop analysis');
+    assert.equal(await page.textContent('[data-cell="intro"] .markdown strong'), 'orders');
+    await setCell('intro', '# Shop\n<b>not html</b> and `code`');
+    await page.waitForFunction(() => document.querySelector('[data-cell="intro"] .markdown h1')?.textContent === 'Shop');
+    assert.equal(await page.textContent('[data-cell="intro"] .markdown code'), 'code');
+    assert.equal(await page.$('[data-cell="intro"] .markdown b'), null, 'raw HTML shows as text');
+    const before = await page.evaluate(() => document.querySelectorAll('.cell').length);
+    await page.click('#add-md');
+    await page.waitForFunction((n) => document.querySelectorAll('.cell').length === n + 1, before);
+    const id = await page.evaluate(() => [...document.querySelectorAll('.cell')].at(-1).dataset.cell);
+    await until(id, 'ok');
+    assert.equal(await page.textContent(`[data-cell="${id}"] .markdown strong`), 'Markdown');
   });
 
   // Last: its Run all also starts the cell that never finishes, which keeps the kernel busy.

@@ -57,8 +57,9 @@ export interface Cell {
   /** The cell's last expression statement, shown as its output; null when the cell does not end with one. */
   output: Span | null;
   /**
-   * A plain SQL cell (`lang: 'sql'` holding only SQL), as its SQL: what an editor shows instead of the TypeScript.
-   * Null when the cell holds anything more. `sqlBody(view)` writes the code back.
+   * A plain SQL cell (`lang: 'sql'` holding only SQL) or Markdown cell (`lang: 'md'` holding only md`…`), as its SQL
+   * or Markdown: what an editor shows instead of the TypeScript. Null when the cell holds anything more.
+   * `sqlBody(view)` writes the code back.
    */
   sql: SqlView | null;
 }
@@ -67,11 +68,13 @@ export interface Cell {
  * A plain SQL cell's content.
  * - `query`: a cell `name` that is `[export] const name = sql<Row>`…`;`, optionally followed by `name;` (show it).
  * - `script`: an action whose code is only `await exec`…`;` statements.
- * `text` and `statements` are the SQL as written, with `${…}` references kept.
+ * - `md`: a `lang: 'md'` cell whose code is only `md`…`;`, shown rendered.
+ * `text` and `statements` are the SQL or Markdown as written, with `${…}` kept.
  */
 export type SqlView =
   | { kind: 'query'; name: string; exported: boolean; rowType: string | null; text: string; output: boolean }
-  | { kind: 'script'; statements: string[] };
+  | { kind: 'script'; statements: string[] }
+  | { kind: 'md'; text: string };
 
 /** Escapes SQL for a template literal: only a backtick needs it (`${…}` stays a reference). */
 export function escapeTemplate(sql: string): string {
@@ -85,6 +88,7 @@ export function sqlBody(view: SqlView): string {
     return `${view.exported ? 'export ' : ''}const ${view.name} = sql${type}\`${escapeTemplate(view.text)}\`;`
       + (view.output ? `\n${view.name};` : '');
   }
+  if (view.kind === 'md') return `md\`${escapeTemplate(view.text)}\`;`;
   return view.statements.map((st) => `await exec\`${escapeTemplate(st)}\`;`).join('\n');
 }
 
@@ -168,7 +172,7 @@ export function parseNotebook(source: string, ts: TypeScriptKit, options: ParseO
     for (const spec of importSpecifiers(t, ts, st)) {
       const imported = spec.imported;
       if (imported === 'cell' || imported === 'action') markers.set(spec.local, imported);
-      if ((imported === 'sql' || imported === 'exec') && spec.local === imported) sqlTags.add(imported);
+      if ((imported === 'sql' || imported === 'exec' || imported === 'md') && spec.local === imported) sqlTags.add(imported);
     }
   }
   const markerOf = (st: number): { kind: 'cell' | 'action'; call: number } | null => {
@@ -430,8 +434,8 @@ export function parseNotebook(source: string, ts: TypeScriptKit, options: ParseO
 
   /** The cell as plain SQL, if its code is exactly what `sqlBody` writes for it (so nothing is lost writing it back). */
   function sqlViewOf(kind_: CellKind, sts: number[], cell: Cell, from: number, to: number): SqlView | null {
-    if (cell.lang !== 'sql' || kind_ === 'setup') return null;
-    const sqlOf = (e: number, tag: 'sql' | 'exec') => {
+    if ((cell.lang !== 'sql' && cell.lang !== 'md') || kind_ === 'setup') return null;
+    const sqlOf = (e: number, tag: 'sql' | 'exec' | 'md') => {
       if (kind(e) !== K.TaggedTemplateExpression) return null;
       const parts = children(e);
       const tagNode = parts[0]!;
@@ -441,7 +445,13 @@ export function parseNotebook(source: string, ts: TypeScriptKit, options: ParseO
       return { text: text(template).slice(1, -1).replace(/\\`/g, '`'), type: typeArgs[0] ? text(typeArgs[0]) : null, args: typeArgs.length };
     };
     let view: SqlView | null = null;
-    if (kind_ === 'cell') {
+    if (cell.lang === 'md') {
+      const [only, ...rest] = sts;
+      if (kind_ !== 'cell' || !only || rest.length || kind(only) !== K.ExpressionStatement) return null;
+      const m = sqlOf(t.first[only]!, 'md');
+      if (!m || m.args) return null;
+      view = { kind: 'md', text: m.text };
+    } else if (kind_ === 'cell') {
       const [decl, show, ...rest] = sts;
       if (!decl || rest.length || kind(decl) !== K.VariableStatement) return null;
       const list = t.first[decl]!;

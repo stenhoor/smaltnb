@@ -19,7 +19,7 @@ notebooks import. TypeScript, SQL ([smaltql](https://github.com/stenhoor/smaltql
 Inspired by marimo, Jupyter and JupyterLab.
 
 > **Status: early development.** [Open a notebook](https://stenhoor.github.io/smaltnb/app/): the notebook page runs in
-> your browser, with SQL and smaltdf cells, run modes, guards, parameters and held writes. See the
+> your browser, with SQL and smaltdf cells, text, run modes, guards, parameters and held writes. See the
 > [site](https://stenhoor.github.io/smaltnb/) and [docs/DESIGN.md](docs/DESIGN.md).
 
 ```ts

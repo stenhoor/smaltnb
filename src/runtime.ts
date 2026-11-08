@@ -9,6 +9,7 @@
 import { action, cell } from './notebook.js';
 import { HeldWrite, NotebookDb, isFrame, type Rows, type WriteContext } from './database.js';
 import * as sqlModule from './sql.js';
+import { md } from './md.js';
 import { createParam, type ParamInfo, type ParamSpec } from './params.js';
 import { Relation, SqlQuery, registerCollected, statement, type CollectedTable } from './sql.js';
 import { importSpecifiers, moduleOf, parseNotebook, type Cell, type Diagnostic, type Notebook, type TypeScriptKit } from './format.js';
@@ -125,6 +126,7 @@ export class Runtime {
     this.#builtins = {
       smaltnb: {
         ...sqlModule,
+        md,
         cell,
         action,
         param: createParam((name, spec) => this.#resolveParam(name, spec)),

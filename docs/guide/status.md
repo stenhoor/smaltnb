@@ -13,7 +13,8 @@ smaltnb is in early development and not published. This page says what is in, as
 | 5 | **Headless**: `smaltnb run` in Node and GitHub Actions | Planned |
 
 TypeScript is read, bound and stripped by [smaltty](https://stenhoor.github.io/smaltty/) (from `smaltkit/typescript`)
-since 2026-11-08, in place of the TypeScript compiler: the page no longer loads 8.7 MB before its first run.
+since 2026-11-08, in place of the TypeScript compiler: the page no longer loads 8.7 MB before its first run. Since
+2026-11-11 its checker marks the TypeScript errors in calls into smaltnb and smaltdf as you type, as warnings.
 
 ## Depends on
 

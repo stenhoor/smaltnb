@@ -54,6 +54,14 @@ npm run e2e          # builds it and drives it in headless Chromium
 
 `npm run e2e` needs Playwright, installed outside the project and found through `NODE_PATH`; see `test/e2e/app.mjs`.
 
-The page and its two workers are bundled with esbuild: the page, the kernel worker (cell code, with smaltty for
-TypeScript, from `smaltkit/typescript`), and the database's engine worker (smaltdb with smaltql and smaltdf). The
-editor and the grid come from smaltkit.
+The page and its three workers are bundled with esbuild: the page, the kernel worker (cell code, with smaltty for
+TypeScript, from `smaltkit/typescript`), the database's engine worker (smaltdb with smaltql and smaltdf), and the type
+checker's worker (`smaltkit/typecheck`). The editor and the grid come from smaltkit.
+
+As you type, the type checker reads the notebook's calls into smaltnb and smaltdf against their declarations
+(`types.json`, written by the build from smaltnb's `dist/` and smaltdf's `.d.ts`). It marks what TypeScript would call
+an error in the cell it is in: a method that doesn't exist (with TypeScript's *Did you mean …?*), an argument too many
+or too few, or of the wrong type. These are warnings: the text is underlined and the line number marked, with the
+message on hover, and the notebook still runs. A cell showing its SQL or Markdown has its warnings in the TS view and in
+Source. The checker reports only what `tsc` reports too, and is quiet about what it doesn't model, so `npm run
+typecheck` stays the full check for a notebook in a project.

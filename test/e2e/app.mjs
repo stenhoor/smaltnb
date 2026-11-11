@@ -56,6 +56,29 @@ try {
     assert.deepEqual((await gridRows('byRegion')).map((r) => r[0]), ['east', 'west', 'south', 'north']);
   });
 
+  await step('type errors are warnings: marked in the cell they are in, and the notebook still runs', async () => {
+    const marks = (id) => page.evaluate((id) => [...document.querySelectorAll(`[data-cell="${id}"] mark.sk-ed-warn`)].map((m) => [m.textContent, m.title]), id);
+    const allMarks = () => page.evaluate(() => document.querySelectorAll('mark.sk-ed-warn').length);
+    const shown = (snippet, present = true) =>
+      page.waitForFunction(([s, p]) => (document.body.dataset.checked ?? null) !== null && document.body.dataset.checked.includes(s) === p, [snippet, present], { timeout: 20000 });
+    // The demo, as written: checked, no warnings.
+    await shown('.filter(');
+    assert.equal(await allMarks(), 0);
+    // A misspelt method in one cell: marked there, with tsc's message and its line in the gutter.
+    const orders = await cellText('orders');
+    await setCell('orders', orders.replace('.filter(', '.fliter('));
+    await shown('.fliter(');
+    assert.deepEqual(await marks('orders'), [['fliter', "Property 'fliter' does not exist on type 'Frame'. Did you mean 'filter'?"]]);
+    assert.equal(await allMarks(), 1);
+    const line = orders.slice(0, orders.indexOf('.filter(')).split('\n').length;
+    assert.equal(await page.evaluate((id) => document.querySelector(`[data-cell="${id}"] .sk-ed-warnline`)?.textContent, 'orders'), String(line));
+    // Fixed: no marks, and the notebook runs as before.
+    await setCell('orders', orders);
+    await shown('.fliter(', false);
+    assert.equal(await allMarks(), 0);
+    await until('byRegion', 'ok');
+  });
+
   await step('an edit reruns what follows it', async () => {
     const before = await gridRows('byRegion');
     await setCell('params', (await cellText('params')).replace('param.number(1)', 'param.number(5)'));

@@ -47,7 +47,8 @@ export const clean = raw.filter(col('qty').gt(0));
 TypeScript is read, bound and stripped by [smaltty](https://stenhoor.github.io/smaltty/), our own TypeScript kit, passed
 in as `ts`: `import { smaltty } from 'smaltkit/typescript'`, in a page and in Node alike. Types are removed, never
 compiled (TypeScript's `erasableSyntaxOnly`): an enum, a namespace with values, a parameter property or `<T>x` in a cell
-is an error on that cell, which says what to write instead.
+is an error on that cell, which says what to write instead. In the page, smaltty's checker (`smaltkit/typecheck`, in a
+worker) marks TypeScript's errors in calls into smaltnb and smaltdf as warnings while you type; the notebook still runs.
 
 ## Develop
 

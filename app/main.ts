@@ -13,6 +13,7 @@ import { sqlBody, type SqlView } from '../src/format.js';
 import { sqlCellLanguage } from './sql-language.js';
 import { markdownLanguage } from './md-language.js';
 import { markdown } from 'smaltkit/markdown';
+import { typeCheckWorker, type TypeCheckWorker, type TypeWarning } from 'smaltkit/typecheck';
 
 const STORE = 'smaltnb:source';
 const NAME = 'smaltnb:name';
@@ -84,6 +85,42 @@ function onNotebook(nb: NotebookView) {
   chunks = next;
   if (!same && !sourceView) render();
   showDiagnostics(nb);
+  typeCheck();
+}
+
+// Type checking (smaltkit/typecheck: smaltty's checker in a worker): the notebook's calls into smaltnb and smaltdf,
+// checked against their declarations (types.json, written by scripts/build-app.mjs). Errors are warnings, marked in
+// the cells' editors; the notebook still runs. Where the worker can't start, there are no warnings.
+let checker: Promise<TypeCheckWorker | null> | null = null;
+const loadChecker = () =>
+  (checker ??= fetch(new URL('./types.json', import.meta.url))
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`))))
+    .then((setup) => typeCheckWorker(setup, { workerUrl: new URL('./typecheck-worker.js', import.meta.url) }))
+    .catch(() => null));
+
+/** Checks the notebook, and marks each warning in the editor showing its code, if the source is still the same. */
+function typeCheck() {
+  const code = currentSource();
+  loadChecker()
+    .then((c) => c?.check(code))
+    .then((warnings) => {
+      if (!warnings || currentSource() !== code) return;
+      showWarnings(warnings);
+      document.body.dataset.checked = code; // for the tests: the source whose warnings are shown
+    })
+    .catch(() => {});
+}
+
+/** Gives each cell the warnings in its slice of the source; a cell showing its SQL or Markdown has none marked. */
+function showWarnings(warnings: TypeWarning[]) {
+  if (sourceEditor) return sourceEditor.setWarnings(warnings);
+  let at = 0;
+  for (const c of ui.values()) {
+    const text = c.text().replace(/\n+$/, '');
+    const own = c.editor.value === text ? warnings.filter((w) => w.start >= at && w.end <= at + text.length) : [];
+    c.editor.setWarnings(own.map((w) => ({ ...w, start: w.start - at, end: w.end - at })));
+    at += text.length + 2; // cells are joined by a blank line
+  }
 }
 
 /** The params bar: one control per parameter. A change reruns what reads it and goes into the page's URL. */

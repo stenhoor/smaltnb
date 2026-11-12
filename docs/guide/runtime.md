@@ -155,6 +155,9 @@ await exec`INSERT INTO region_totals SELECT * FROM ${byRegion}`;
   SQL the engine reports as not read-only (a `TEMP` table too). In a cell that isn't an action, a write is `held`
   until you run the cell; an action writes when it runs. `db` passed to smaltdf (`frame.insertInto(db, 'orders')`) is
   checked the same way.
+- **Charts.** An output that is a chart (`chart.bar(data, { x, y })`) reads its data's columns, at most 5,000 rows,
+  from the collected result (a query or frame in the chart is collected like any other). The page gets the chart's
+  kind, options and rows (`state.outputChart`, `{ kind: 'chart' }` in the kernel), and draws them.
 - **Outputs** that are collected results reach the page as a table with its first rows; `rows(cell, offset, limit)`
   (and `KernelClient.rows`) fetch more, for a grid that scrolls. The page never holds a whole result.
 

@@ -29,6 +29,10 @@
       "types": "./dist/md.d.ts",
       "default": "./dist/md.js"
     },
+    "./chart": {
+      "types": "./dist/chart.d.ts",
+      "default": "./dist/chart.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "default": "./dist/runtime.js"

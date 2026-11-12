@@ -45,7 +45,7 @@ await deleteFrom('orders_clean').run(db);
 await clean.insertInto(db, 'orders_clean');
 ```
 
-`cell()`, `action()`, `sql`, `exec`, `db`, `param` and `md` exist today; `ui` and `chart` are *planned*.
+`cell()`, `action()`, `sql`, `exec`, `db`, `param`, `md` and `chart` exist today; `ui` is *planned*.
 [examples/shop.nb.ts](../../examples/shop.nb.ts) is a notebook with SQL and smaltdf that typechecks and runs now.
 
 ## Reactive
@@ -110,6 +110,26 @@ write is held until you run it.
 reads a SQL result as a frame, and SQL reads a frame's result, because both build plans for the same engine. Results
 are collected once per run, in memory by default, and the page only ever holds the rows on screen. See
 [the database](./runtime#the-database).
+
+## Charts
+
+A `chart.*` call as a cell's last expression shows a chart of a result as the cell's output:
+
+```ts
+cell('revenueChart');
+chart.bar(byRegion, { x: 'region', y: 'revenue', labels: true });
+```
+
+- **Kinds:** `bar` (horizontal), `column`, `line`, `area`, `pie`, `donut` and `scatter`.
+- **Columns:** `x` is the categories (for `scatter`, a number), and `y` a column of values, or several, one series
+  each. `series` splits one measure into series by a column's values; `size` sizes a scatter's points.
+- **Options:** `stack` (`'none'`, `'stacked'`, `'percent'`), `labels`, `smooth`, `markers`, `title`, `height`.
+- **Data:** a query, a smaltdf frame, another cell's result, or an array of row objects. With a typed query
+  (`` sql<Row>`…` ``) or typed rows, the column names are checked as you type. A name the data doesn't have is an
+  error on the cell, with the columns it has.
+- **Large results:** a chart reads at most 5,000 rows, and says when there were more.
+
+Charts come from `smaltkit/charts`, shared with the other smalt apps.
 
 ## Notebooks as libraries
 

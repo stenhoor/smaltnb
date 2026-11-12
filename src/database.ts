@@ -181,6 +181,12 @@ export class NotebookDb {
     return { columns: r.columns, rows: r.rows };
   }
 
+  /** The first `limit` rows of some of a collected table's columns (a chart's). */
+  async columns(table: string, columns: string[], limit: number): Promise<Rows> {
+    const r = await this.query(`SELECT ${columns.map(quoteIdentifier).join(', ')} FROM temp.${quoteIdentifier(table)} LIMIT ?1`, [limit]);
+    return { columns: r.columns, rows: r.rows };
+  }
+
   /** Drops a collected table, if it exists. */
   async drop(table: string): Promise<void> {
     await this.run(`DROP TABLE IF EXISTS temp.${quoteIdentifier(table)}`);

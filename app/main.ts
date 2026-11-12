@@ -13,6 +13,8 @@ import { sqlBody, type SqlView } from '../src/format.js';
 import { sqlCellLanguage } from './sql-language.js';
 import { markdownLanguage } from './md-language.js';
 import { markdown } from 'smaltkit/markdown';
+import { areaChart, barChart, chartData, columnChart, donutChart, lineChart, pieChart, scatterChart, type ChartColumn, type ChartContext } from 'smaltkit/charts';
+import type { ChartOutput } from '../src/chart.js';
 import { typeCheckWorker, type TypeCheckWorker, type TypeWarning } from 'smaltkit/typecheck';
 
 const STORE = 'smaltnb:source';
@@ -33,6 +35,8 @@ interface CellUi {
   actions: HTMLElement;
   output: HTMLElement;
   grid: Grid | null;
+  /** Stops redrawing the chart when the cell's width changes. */
+  unobserve: (() => void) | null;
   /** The output last drawn, so a state change that keeps it doesn't redraw the grid. */
   drawn: string;
   /** The cell's text in the source, from its editor: the TypeScript as typed, or the SQL in its TypeScript form. */
@@ -179,7 +183,7 @@ function render() {
   if (sourceView) return renderSource();
   sourceEditor = null;
   const focusedId = [...ui.values()].find((c) => c.root.contains(document.activeElement))?.id;
-  for (const c of ui.values()) c.grid?.destroy();
+  for (const c of ui.values()) { c.grid?.destroy(); c.unobserve?.(); }
   ui = new Map();
   cellsEl.replaceChildren();
   for (const [i, chunk] of chunks.entries()) {
@@ -225,7 +229,7 @@ function render() {
     const text = view
       ? () => { const body = sqlBody(withSql(view, editor.value)); return body ? `${head0}\n${body}` : head0; }
       : () => editor.value;
-    const c: CellUi = { id: chunk.id, root, editor, status, reason, actions, output, grid: null, drawn: '', text };
+    const c: CellUi = { id: chunk.id, root, editor, status, reason, actions, output, grid: null, unobserve: null, drawn: '', text };
     ui.set(chunk.id, c);
     sizeEditor(c);
     const state = kernel.state(chunk.id);
@@ -267,7 +271,7 @@ function toggle(id: string, isText: boolean): HTMLButtonElement {
 
 /** The whole .nb.ts file in one editor. */
 function renderSource() {
-  for (const c of ui.values()) c.grid?.destroy();
+  for (const c of ui.values()) { c.grid?.destroy(); c.unobserve?.(); }
   ui = new Map();
   const host = document.createElement('div');
   host.className = 'cell-editor source-editor';
@@ -336,11 +340,15 @@ function showState(s: CellView) {
 
 function showOutput(c: CellUi, s: CellView) {
   const key = s.status === 'error' ? `error:${s.error?.message}` : JSON.stringify(s.output.kind === 'table'
-    ? { t: s.output.table.table, n: s.output.table.rowCount, runs: s.runs } : { o: s.output, runs: s.runs });
+    ? { t: s.output.table.table, n: s.output.table.rowCount, runs: s.runs }
+    : s.output.kind === 'chart' ? { c: s.output.chart.kind, runs: s.runs } : { o: s.output, runs: s.runs },
+    (_k, v: unknown) => (typeof v === 'bigint' ? `${v}n` : v));
   if (key === c.drawn) return;
   c.drawn = key;
   c.grid?.destroy();
   c.grid = null;
+  c.unobserve?.();
+  c.unobserve = null;
   c.output.replaceChildren();
   if (s.status === 'error' && s.error) {
     const pre = document.createElement('pre');
@@ -370,6 +378,10 @@ function showOutput(c: CellUi, s: CellView) {
     });
     return;
   }
+  if (out.kind === 'chart') {
+    showChart(c, out.chart);
+    return;
+  }
   if (out.kind === 'markdown') {
     const div = document.createElement('div');
     div.className = 'sk-md markdown';
@@ -383,6 +395,62 @@ function showOutput(c: CellUi, s: CellView) {
     pre.textContent = out.kind === 'text' ? out.text : show(out.value);
     c.output.append(pre);
   }
+}
+
+const RENDER: Record<ChartOutput['kind'], (ctx: ChartContext) => void> = {
+  bar: barChart, column: columnChart, line: lineChart, area: areaChart, pie: pieChart, donut: donutChart, scatter: scatterChart,
+};
+
+/** Draws a chart output with smaltkit/charts, again whenever the cell's width changes. */
+function showChart(c: CellUi, out: ChartOutput) {
+  const o = out.options as ChartOutput['options'] & { series?: string; size?: string; title?: string; height?: number };
+  const box = document.createElement('div');
+  box.className = 'chart';
+  const height = o.height ?? 280;
+  box.style.height = `${height}px`;
+  if (o.title) {
+    const h = document.createElement('div');
+    h.className = 'chart-title';
+    h.textContent = o.title;
+    c.output.append(h);
+  }
+  c.output.append(box);
+  if (out.rowCount > out.rows.length) {
+    const note = document.createElement('div');
+    note.className = 'table-foot';
+    note.textContent = `Drawn from the first ${out.rows.length.toLocaleString()} of ${out.rowCount.toLocaleString()} rows.`;
+    c.output.append(note);
+  }
+  const ys = typeof o.y === 'string' ? [o.y] : [...o.y];
+  const scatter = out.kind === 'scatter';
+  type Role = [key: string, role: string, kind: 'dimension' | 'measure'];
+  const roles: Role[] = scatter ? [[o.x, 'x', 'measure'], [ys[0]!, 'y', 'measure']] : [[o.x, 'category', 'dimension'], ...ys.map((y): Role => [y, 'values', 'measure'])];
+  if (scatter && o.size) roles.push([o.size, 'size', 'measure']);
+  if (o.series) roles.push([o.series, scatter ? 'legend' : 'series', 'dimension']);
+  const columns: ChartColumn[] = roles.map(([key, role, kind]) => {
+    const i = out.columns.indexOf(key);
+    return { key, role, label: key, kind, values: out.rows.map((r) => r[i] as never), fmt: formatValue };
+  });
+  const draw = () => {
+    const width = box.clientWidth;
+    if (!width) return;
+    RENDER[out.kind]({
+      el: box, width, height, options: { ...o, legend: 'auto' },
+      data: chartData(columns, out.rows.length), extra: {}, palette: 12, selected: () => null,
+    });
+  };
+  draw();
+  let last = box.clientWidth;
+  const ro = new ResizeObserver(() => { if (box.clientWidth !== last) { last = box.clientWidth; draw(); } });
+  ro.observe(box);
+  c.unobserve = () => ro.disconnect();
+}
+
+function formatValue(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (typeof v === 'bigint') return v.toLocaleString();
+  return String(v);
 }
 
 async function downloadCsv(id: string, columns: string[], rowCount: number) {

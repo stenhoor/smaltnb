@@ -76,6 +76,14 @@ doesn't fit) whenever they change. `rt.setParams({ minQty: '7' })` sets values (
 declaring cell runs again, and what reads it reacts as to an edit. The kernel and `KernelClient` carry the same:
 `open(source, fileName, params)`, `setParams`, `onParams`, `params`; a restart keeps the values.
 
+## Controls
+
+A cell's controls (`ui.*`) are in its state, `controls` (`ControlInfo`: index, kind, label, value, default, options,
+min, max, step), as it declared them when it last ran; a cell that fails keeps the ones declared before the failure.
+`rt.setControl(cell, index, value)` sets one (null goes back to the default): the cell runs again, and what reads it
+reacts as to an edit. A value that doesn't fit the control is dropped for the default. The kernel and `KernelClient`
+carry the same (`setControl`, and `controls` on each cell's view); a restart keeps the values.
+
 ## The kernel
 
 In a page, cells run in a Web Worker, the kernel, so the page stays responsive and a cell that never finishes can be

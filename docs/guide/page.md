@@ -18,6 +18,7 @@ opens a demo notebook over a small `orders` table and runs it.
 - **Source** shows the whole notebook as its `.nb.ts` file, editable; **Cells** goes back.
 - **Parameters** declared with `param()` show in a bar under the header. A change reruns what reads them and goes into
   the page's address (`?minQty=5`), so a link opens the notebook with those values.
+- **Controls** (`ui.*`) show under the cell that declares them. A change runs the cell again.
 - **Run** runs one cell (`Ctrl+Enter`; `Shift+Enter` runs it and moves to the next). **Run all** runs every cell;
   actions run only from their own Run button.
 - **Status** shows on each cell's edge and header: ok, stale, skipped, held, error, with the reason.
@@ -35,7 +36,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-These are planned: notebooks in git, the graph view, `ui` and charts, type pinning, and completion from
+These are planned: notebooks in git, the graph view, charts, type pinning, and completion from
 a TypeScript language service. See [Status](./status).
 
 ## Run it locally

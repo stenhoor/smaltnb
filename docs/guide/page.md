@@ -15,6 +15,9 @@ opens a demo notebook over a small `orders` table and runs it.
 - **Text cells** (`lang: 'md'`) show their Markdown to edit, rendered below. `${value}` puts a notebook value in the
   text, so prose follows the parameters. **TS** shows the TypeScript, **MD** goes back. Raw HTML in the text shows as
   text.
+- **Graph** shows how the cells depend on each other: a box per cell, left to right by depth, in its status colour,
+  and an arrow for each name a cell reads from another (dashed when only its guard reads it). Hover a box to bring
+  forward what it reads and what reads it; click it to go to the cell. It stays open across reloads in this browser.
 - **Source** shows the whole notebook as its `.nb.ts` file, editable; **Cells** goes back.
 - **Parameters** declared with `param()` show in a bar under the header. A change reruns what reads them and goes into
   the page's address (`?minQty=5`), so a link opens the notebook with those values.
@@ -41,8 +44,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-These are planned: notebooks in git, the graph view, type pinning, and completion from
-a TypeScript language service. See [Status](./status).
+These are planned: notebooks in git, and completion from a TypeScript language service. See [Status](./status).
 
 ## Run it locally
 

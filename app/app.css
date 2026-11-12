@@ -23,7 +23,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px max(16px, env(safe-area-
 #diagnostics .error { color: var(--danger); }
 #cells { display: grid; gap: 14px; }
 
-.cell { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; border-left: 3px solid var(--border); }
+.cell { scroll-margin-top: 64px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; border-left: 3px solid var(--border); }
 .cell[data-status="ok"] { border-left-color: var(--success); }
 .cell[data-status="running"] { border-left-color: var(--product-nb); }
 .cell[data-status="stale"], .cell[data-status="held"] { border-left-color: var(--warning); }
@@ -64,6 +64,23 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px max(16px, env(safe-area-
 .params input[type="checkbox"] { accent-color: var(--primary); }
 .params .bad { border-color: var(--danger); outline: 1px solid var(--danger); }
 .output .markdown { padding: 10px 16px; }
+.graph-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: auto; max-height: 360px; }
+.graph-panel svg { display: block; font: 500 12px var(--font-mono); }
+.graph-panel .edge { fill: none; stroke: var(--text-3); stroke-width: 1.4; }
+.graph-panel .edge.guard { stroke-dasharray: 4 3; }
+.graph-panel .arrowhead { fill: var(--text-3); }
+.graph-panel .node { cursor: pointer; outline: none; }
+.graph-panel .node rect { fill: var(--bg); stroke: var(--border); stroke-width: 1.5; }
+.graph-panel .node text { fill: var(--text); }
+.graph-panel .node .tag { fill: var(--accent); font-size: 10px; }
+.graph-panel .node[data-status="ok"] rect { stroke: var(--success); }
+.graph-panel .node[data-status="running"] rect { stroke: var(--product-nb); }
+.graph-panel .node[data-status="stale"] rect, .graph-panel .node[data-status="held"] rect { stroke: var(--warning); }
+.graph-panel .node[data-status="error"] rect { stroke: var(--danger); }
+.graph-panel .node[data-status="skipped"] rect { stroke-dasharray: 4 3; stroke: var(--text-3); }
+.graph-panel .node:focus-visible rect { stroke: var(--focus); stroke-width: 2.5; }
+.graph-panel svg.focus .node:not(.near), .graph-panel svg.focus .edge:not(.near) { opacity: 0.3; }
+.graph-panel .edge.near { stroke: var(--text); }
 .types-warn { color: var(--warning); font-size: 12px; margin-right: 4px; }
 .output .chart { margin: 8px 16px; position: relative; }
 .output .chart-title { padding: 10px 16px 0; font-weight: 500; }

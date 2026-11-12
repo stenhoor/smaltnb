@@ -15,13 +15,17 @@ import { createRequire } from 'node:module';
 import { basename, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { reportJson, reportMarkdown, reportText, runNotebook } from 'smaltnb/report';
+import { buildNotebooks } from './build.js';
 import type { TypeScriptKit } from 'smaltnb/format';
 
 const USAGE = `Usage: smaltnb run <notebook.nb.ts> [options]
+       smaltnb build <notebook.nb.ts>... [--out <dir>]
 
-Runs every cell in order and prints each one's status. Exits 1 if a cell fails or is held.
+run: runs every cell in order and prints each one's status. Exits 1 if a cell fails or is held.
+build: writes each notebook as a library, <name>.nb.js and <name>.nb.d.ts under --out (default dist), keeping their
+folders. The default export is the notebook's factory: notebook.with(params).get(...names).
 
-Options:
+Options for run:
   --param name=value   Set a parameter (repeat for more). Values are text, checked as in the page.
   --actions            Run the notebook's actions too, once each, in order.
   --db <file>          Keep the database in this file (needs @smaltworks/smaltdb-node). Default: in memory.
@@ -50,7 +54,7 @@ interface Args {
 export function parseArgs(argv: string[]): Args | 'help' {
   if (argv.includes('-h') || argv.includes('--help') || argv.length === 0) return 'help';
   const [command, ...rest] = argv;
-  if (command !== 'run') throw new UsageError(`Unknown command "${command}": the command is "smaltnb run <notebook.nb.ts>".`);
+  if (command !== 'run') throw new UsageError(`Unknown command "${command}": the commands are "smaltnb run" and "smaltnb build".`);
   const a: Args = { notebook: '', params: {}, actions: false, db: null, init: [], report: null, md: null, rows: 20, quiet: false };
   const value = (i: number, flag: string) => {
     const v = rest[i + 1];
@@ -118,7 +122,38 @@ async function tryImport(spec: string, from: string): Promise<Module | null> {
   }
 }
 
+/** smaltnb build <notebook.nb.ts>... [--out dir] */
+async function buildCommand(argv: string[], io: { out(s: string): void; err(s: string): void }): Promise<number> {
+  const files: string[] = [];
+  let out = 'dist';
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--out') {
+      const v = argv[++i];
+      if (!v || v.startsWith('--')) return usage(io, '--out needs a folder.');
+      out = v;
+    } else if (argv[i]!.startsWith('-')) return usage(io, `Unknown option ${argv[i]}.`);
+    else files.push(argv[i]!);
+  }
+  if (!files.length) return usage(io, 'Give the notebooks to build: smaltnb build <notebook.nb.ts>...');
+  try {
+    const ts = (await load(['smaltkit/typescript'], process.cwd(), 'Reading TypeScript')).smaltty as TypeScriptKit;
+    const r = buildNotebooks(ts, files, out);
+    for (const f of r.written) io.out(`wrote ${f}\n`);
+    for (const e of r.errors) io.err(`smaltnb build: ${e}\n`);
+    return r.errors.length ? 1 : 0;
+  } catch (e) {
+    io.err(`smaltnb: ${(e as Error).message}\n`);
+    return 2;
+  }
+}
+
+function usage(io: { err(s: string): void }, message: string): number {
+  io.err(`${message}\n\n${USAGE}`);
+  return 2;
+}
+
 export async function main(argv: string[], io = { out: (s: string) => process.stdout.write(s), err: (s: string) => process.stderr.write(s) }): Promise<number> {
+  if (argv[0] === 'build' && !argv.includes('-h') && !argv.includes('--help')) return buildCommand(argv.slice(1), io);
   let args: Args | 'help';
   try {
     args = parseArgs(argv);

@@ -10,4 +10,5 @@ export * from './md.js';
 export * from './ui.js';
 export * from './chart.js';
 export * from './report.js';
+export * from './library.js';
 export * from './database.js';

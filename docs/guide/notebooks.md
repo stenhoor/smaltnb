@@ -185,6 +185,34 @@ export const byRegion = sql`SELECT region, sum(revenue) AS revenue FROM ${orders
 - `tsc` checks an import as written (with `allowImportingTsExtensions`): [examples/report.nb.ts](../../examples/report.nb.ts)
   imports [examples/orders.nb.ts](../../examples/orders.nb.ts).
 
-*Planned:* the typed factory, `import nb from './regional.nb.ts'` with `nb.with({ mode: 'full' })` to set an import's
-parameters; `smaltnb build`, which writes `.js` and `.d.ts`; and imports from other repositories
-(`gh:owner/repo@commit/path.nb.ts`, with a lock file).
+### Built notebooks: the typed factory
+
+To set an imported notebook's parameters, or to use a notebook from an app, build it. `smaltnb build` writes each
+notebook as a library: a `.nb.js` whose default export is the notebook's **factory**, and a `.nb.d.ts` that types it
+from the notebook's own source.
+
+```sh
+smaltnb build notebooks/orders.nb.ts notebooks/report.nb.ts --out dist
+```
+
+```ts
+import orders from './dist/orders.nb.js';
+
+const { orders: big } = await orders.with({ minQty: 3 }).get('orders');
+```
+
+- **`with(params)`** opens the notebook with those parameter values; the rest take their defaults. They're typed when
+  the notebook exports its parameters as `params` (`export const params = param({ … })`), so `{ minQty: 'three' }` or a
+  parameter it doesn't have is a type error. The same values give the same instance.
+- **`get(...names)`** runs only the cells those exports need, once, and gives their values; never an action. `get` on
+  the factory itself uses the defaults.
+- **The database:** in a notebook that imports a factory, it runs on that notebook's database. In an app, give one:
+  `orders.with(params, { database, frame: table })`, or `orders.in({ database, frame: table })` for every call.
+- **What it needs:** the built `.js` holds the notebook's source and reads it with smaltty when it runs, so it needs
+  smaltnb and smaltkit installed beside it, not TypeScript. A notebook that imports another by name is built in the
+  same command (`build` says so if it isn't), and the built one loads the other's built module.
+- **Folders:** under `--out` (default `dist`), the notebooks keep their folders, from their common folder. Keep the
+  output apart from the sources: TypeScript resolves `./orders.nb.js` to `./orders.nb.ts` when both are in one folder.
+
+*Planned:* imports from other repositories (`gh:owner/repo@commit/path.nb.ts`, with a lock file), and compiled cells
+in the built `.js`, so it needn't read TypeScript when it runs.

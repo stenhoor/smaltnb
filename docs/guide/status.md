@@ -8,7 +8,7 @@ smaltnb is in early development and not published. This page says what is in, as
 | 0 | **Format and graph**: the `.nb.ts` parser, the graph, the rules and their diagnostics | In ([the format](./format)) |
 | 1 | **Run**: [the runtime](./runtime), [the kernel](./runtime#the-kernel), [the database](./runtime#the-database) and [the notebook page](./page) | In |
 | 2 | **Git**: a repository in the browser (OPFS), synced with GitHub; per-cell diffs and commits | Planned |
-| 3 | **Libraries**: notebook imports, the typed factory, `smaltnb build` | Imports in, in `smaltnb run` ([Notebooks as libraries](./notebooks#notebooks-as-libraries)); the rest planned |
+| 3 | **Libraries**: notebook imports, the typed factory, `smaltnb build` | In ([Notebooks as libraries](./notebooks#notebooks-as-libraries)); imports from other repositories planned |
 | 4 | **Types and UI**: pinned row types, `ui.*` controls, charts, the on-disk result store | Controls and charts in ([Controls](./notebooks#controls), [Charts](./notebooks#charts)); the rest planned |
 | 5 | **Headless**: `smaltnb run` in Node and GitHub Actions | In ([Headless runs](./headless)); a database in a file needs [smaltdb Node](https://github.com/stenhoor/smaltdb-node) |
 

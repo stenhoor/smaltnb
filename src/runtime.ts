@@ -525,6 +525,12 @@ export class Runtime {
     this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, outputChart: null, ms, ...(controls && { controls }) });
   }
 
+  /** A built notebook's factory (smaltnb/library) imported by this notebook runs on this notebook's database. */
+  #inContext(value: unknown): unknown {
+    if (!value || typeof value !== 'object' || !(Symbol.for('smaltnb.factory') in value)) return value;
+    return (value as { in(ctx: object): unknown }).in({ database: this.#options.database, frame: this.#options.frame });
+  }
+
   #table(cell: string, name: string): string {
     return tableName(this.#options.tablePrefix ?? 'nb_', cell, name);
   }
@@ -592,7 +598,8 @@ export class Runtime {
     const placed = '\n'.repeat(c.body ? c.body.line - 1 : 0) + ' '.repeat(start - (this.#source.lastIndexOf('\n', start - 1) + 1)) + code;
     const fileName = this.#options.fileName ?? 'notebook.nb.ts';
     const fn = c.kind === 'setup'
-      ? compileSetup(this.#ts, placed, this.#builtins, this.#options.importModule, fileName, (spec, names) => this.#importNotebook(spec, names))
+      ? compileSetup(this.#ts, placed, this.#builtins, this.#options.importModule, fileName, (spec, names) => this.#importNotebook(spec, names),
+        (value) => this.#inContext(value))
       : compileCell(this.#ts, placed, c.reads, values, fileName);
     const guard = c.when ? compileGuard(this.#ts, c.when.text, c.when.reads) : null;
     const compiled = { key, fn, guard };
@@ -645,7 +652,7 @@ function compileCell(ts: TypeScriptKit, code: string, reads: string[], values: s
 /** The setup cell's imports, loaded with the module loader (`smaltnb` is built in). Type-only imports are dropped. */
 type NotebookLoader = (spec: string, names: string[] | '*') => Promise<Record<string, unknown>>;
 
-function compileSetup(ts: TypeScriptKit, code: string, builtins: Record<string, Record<string, unknown>>, load: ModuleLoader | undefined, fileName: string, loadNotebook: NotebookLoader): CellFn {
+function compileSetup(ts: TypeScriptKit, code: string, builtins: Record<string, Record<string, unknown>>, load: ModuleLoader | undefined, fileName: string, loadNotebook: NotebookLoader, bindValue: (value: unknown) => unknown): CellFn {
   const t = ts.parse(code, { fileName });
   const imports: { spec: string; names: string[] | '*'; bind: (m: Record<string, unknown>, out: Record<string, unknown>) => void }[] = [];
   for (const st of t.children(t.root)) {
@@ -662,7 +669,7 @@ function compileSetup(ts: TypeScriptKit, code: string, builtins: Record<string, 
       names: names.some((n) => n.imported === '*') ? '*' : names.map((n) => n.imported),
       bind: (m, out) => {
         for (const n of names) {
-          if (n.imported === 'default') out[n.local] = m.default;
+          if (n.imported === 'default') out[n.local] = bindValue(m.default);
           else if (n.imported === '*') out[n.local] = m;
           else {
             if (!(n.imported in m)) throw new Error(`'${spec}' has no export named '${n.imported}'.`);

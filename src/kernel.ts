@@ -17,6 +17,7 @@ import type { Rows } from './database.js';
 import type { CollectedTable } from './sql.js';
 import { Markdown } from './md.js';
 import type { ParamInfo } from './params.js';
+import type { ControlInfo } from './ui.js';
 
 /** The end of a message channel: a worker's `self`, a `MessagePort`, or anything shaped like them. */
 export interface MessageEndpoint {
@@ -43,6 +44,8 @@ export interface CellView {
   error: CellState['error'];
   ms: number | null;
   runs: number;
+  /** The controls (ui.*) the cell declared when it last ran, with their values. */
+  controls: ControlInfo[];
 }
 
 /** The notebook as the page needs it to draw cells, the graph and diagnostics. */
@@ -55,7 +58,8 @@ export interface NotebookView {
 
 /** Page to kernel. Each request has an id; the kernel answers with `done` or `failed` for that id. */
 export type Request =
-  | { type: 'open'; id: number; source: string; fileName?: string; params?: Record<string, string> }
+  | { type: 'open'; id: number; source: string; fileName?: string; params?: Record<string, string>; controls?: Record<string, Record<number, unknown>> }
+  | { type: 'setControl'; id: number; cell: string; index: number; value: unknown }
   | { type: 'setParams'; id: number; values: Record<string, string | null> }
   | { type: 'update'; id: number; source: string }
   | { type: 'run'; id: number; cells: string[]; force?: boolean }
@@ -108,6 +112,7 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
           database: options.database ? await openDatabase() : undefined, frame: options.frame,
           onChange: (state) => post({ type: 'state', state: view(state) }),
           params: req.params,
+          controls: req.controls,
           onParams: (params) => post({ type: 'params', params }),
         });
         for (const s of runtime.states()) post({ type: 'state', state: view(s) });
@@ -122,6 +127,8 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
         return opened().runAll({ actions: req.actions });
       case 'setParams':
         return opened().setParams(req.values);
+      case 'setControl':
+        return opened().setControl(req.cell, req.index, req.value);
       case 'rows':
         return opened().rows(req.cell, req.offset, req.limit, req.name);
     }
@@ -148,6 +155,7 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
 export function view(state: CellState): CellView {
   return {
     id: state.id, status: state.status, reason: state.reason, error: state.error, ms: state.ms, runs: state.runs,
+    controls: state.controls.map((c) => ({ ...c, ...(c.options && { options: [...c.options] }) })),
     output: state.outputTable ? { kind: 'table', table: tableInfo(state.outputTable), preview: state.outputTable.preview }
       : state.hasOutput && state.runs > 0 && state.output instanceof Markdown ? { kind: 'markdown', text: state.output.text }
       : state.hasOutput && state.runs > 0 ? toDisplay(state.output) : { kind: 'none' },

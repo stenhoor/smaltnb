@@ -13,6 +13,8 @@ import { sqlBody, type SqlView } from '../src/format.js';
 import { sqlCellLanguage } from './sql-language.js';
 import { markdownLanguage } from './md-language.js';
 import { markdown } from 'smaltkit/markdown';
+import { choiceControl } from 'smaltkit/controls';
+import type { ControlInfo } from '../src/ui.js';
 import { typeCheckWorker, type TypeCheckWorker, type TypeWarning } from 'smaltkit/typecheck';
 
 const STORE = 'smaltnb:source';
@@ -32,6 +34,10 @@ interface CellUi {
   reason: HTMLElement;
   actions: HTMLElement;
   output: HTMLElement;
+  /** The cell's controls (ui.*), between its code and its output. */
+  controls: HTMLElement;
+  /** The controls last drawn, so a state change that keeps them doesn't redraw (and lose focus). */
+  controlsDrawn: string;
   grid: Grid | null;
   /** The output last drawn, so a state change that keeps it doesn't redraw the grid. */
   drawn: string;
@@ -220,12 +226,15 @@ function render() {
     });
     const output = document.createElement('div');
     output.className = 'output';
-    root.append(head, edHost, output);
+    const controls = document.createElement('div');
+    controls.className = 'controls';
+    controls.hidden = true;
+    root.append(head, edHost, controls, output);
     cellsEl.append(root);
     const text = view
       ? () => { const body = sqlBody(withSql(view, editor.value)); return body ? `${head0}\n${body}` : head0; }
       : () => editor.value;
-    const c: CellUi = { id: chunk.id, root, editor, status, reason, actions, output, grid: null, drawn: '', text };
+    const c: CellUi = { id: chunk.id, root, editor, status, reason, actions, output, controls, controlsDrawn: '', grid: null, drawn: '', text };
     ui.set(chunk.id, c);
     sizeEditor(c);
     const state = kernel.state(chunk.id);
@@ -331,7 +340,65 @@ function showState(s: CellView) {
     if (s.status === 'skipped' && meta.when) actions.push(button('Run once anyway', 'Ignore the guard this time', () => void runCells([s.id], true)));
   }
   c.actions.replaceChildren(...actions);
+  showControls(c, s.controls);
   showOutput(c, s);
+}
+
+/** The cell's controls. A change runs the cell again with the new value (null: back to the default). */
+function showControls(c: CellUi, controls: ControlInfo[]) {
+  const key = JSON.stringify(controls);
+  if (key === c.controlsDrawn) return;
+  c.controlsDrawn = key;
+  c.controls.hidden = controls.length === 0;
+  const set = (ctl: ControlInfo, value: unknown) =>
+    void flush().then(() => kernel.setControl(c.id, ctl.index, value === ctl.default ? null : value)).catch((err: Error) => toast(err.message, 'error'));
+  c.controls.replaceChildren(...controls.map((ctl) => {
+    const label = document.createElement('label');
+    label.className = `control control-${ctl.kind}`;
+    label.dataset.index = String(ctl.index);
+    if (ctl.label) {
+      const name = document.createElement('span');
+      name.className = 'control-label';
+      name.textContent = ctl.label;
+      label.append(name);
+    }
+    if (ctl.kind === 'select') {
+      // Shared with the other smalt apps: chips for a few options, a list in a menu for many.
+      const host = document.createElement('div');
+      choiceControl(host, (ctl.options?.length ?? 0) <= 6 ? 'buttons' : 'dropdown', {
+        values: ctl.options ?? [], selected: [ctl.value as string], single: true,
+        onChange: (v) => set(ctl, v.length ? v[0] : ctl.default),
+      });
+      label.append(host);
+      return label;
+    }
+    const input = document.createElement('input');
+    input.className = 'sk-input';
+    input.type = ctl.kind === 'slider' ? 'range' : ctl.kind === 'checkbox' ? 'checkbox' : ctl.kind === 'date' ? 'date' : ctl.kind === 'number' ? 'number' : 'text';
+    if (ctl.min !== undefined) input.min = String(ctl.min);
+    if (ctl.max !== undefined) input.max = String(ctl.max);
+    input.step = ctl.step !== undefined ? String(ctl.step) : 'any';
+    if (ctl.kind === 'checkbox') input.checked = ctl.value === true;
+    else input.value = String(ctl.value);
+    input.title = `Default: ${String(ctl.default)}`;
+    label.append(input);
+    if (ctl.kind === 'slider') {
+      const shown = document.createElement('output');
+      shown.textContent = String(ctl.value);
+      input.addEventListener('input', () => (shown.textContent = input.value));
+      label.append(shown);
+    }
+    input.addEventListener('change', () => {
+      if (ctl.kind === 'checkbox') return set(ctl, input.checked);
+      if (ctl.kind === 'slider' || ctl.kind === 'number') {
+        if (input.value.trim() === '' || !Number.isFinite(Number(input.value))) return set(ctl, ctl.default);
+        return set(ctl, Number(input.value));
+      }
+      if (ctl.kind === 'date' && input.value === '') return set(ctl, ctl.default);
+      set(ctl, input.value);
+    });
+    return label;
+  }));
 }
 
 function showOutput(c: CellUi, s: CellView) {

@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist/cli",
+    "rootDir": "cli",
+    "lib": ["es2023"],
+    "types": ["node"]
+  },
+  "include": ["cli/**/*.ts"]
+}

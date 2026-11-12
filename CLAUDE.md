@@ -21,9 +21,9 @@ copy here: lines and roles change, and a copy taken before the change is out of 
 ## Commands
 
 ```bash
-npm install            # prepare builds dist/ (tsc -p tsconfig.build.json)
+npm install            # prepare builds dist/ (tsc -p tsconfig.build.json: TypeScript 6.0.3, which emits)
 npm run deps           # smaltdb, smaltql, smaltdf pinned in packed.json (scripts/fetch-packed.mjs); again after each npm install
-npm run typecheck      # tsc --noEmit, strict, over src/, test/ and examples/ (CI runs it)
+npm run typecheck      # TypeScript 7's tsc (typescript7), strict, no emit, over src/, test/, examples/ and app/ (CI runs it)
 npm test               # build, then node --test test/*.test.ts against the built package
 npm run app            # build the notebook page (scripts/build-app.mjs, esbuild) and serve it on :8090
 npm run e2e            # build it and drive it in headless Chromium (Playwright, installed with --no-save)

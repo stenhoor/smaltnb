@@ -63,7 +63,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "deps": "node scripts/fetch-packed.mjs",
-    "typecheck": "node scripts/fetch-packed.mjs --check && tsc -p . && tsc -p examples && tsc -p app",
+    "typecheck": "node scripts/fetch-packed.mjs --check && node node_modules/typescript7/bin/tsc -p . && node node_modules/typescript7/bin/tsc -p examples && node node_modules/typescript7/bin/tsc -p app",
     "test": "npm run build && node scripts/fetch-packed.mjs --check && node --test test/*.test.ts",
     "app:build": "node scripts/build-app.mjs",
     "app": "node scripts/build-app.mjs && node scripts/serve-app.mjs",
@@ -76,7 +76,8 @@
     "@types/node": "^22.0.0",
     "esbuild": "^0.25.12",
     "smaltkit": "github:stenhoor/smaltkit#c7d9c5c49ce1e9e14b129a6fe7bf25bc36764b7b",
-    "typescript": "~5.9.0",
+    "typescript": "~6.0.3",
+    "typescript7": "npm:typescript@~7.0.2",
     "vitepress": "^1.6.4"
   },
   "peerDependencies": {

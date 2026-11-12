@@ -10,6 +10,7 @@ import { action, cell } from './notebook.js';
 import { HeldWrite, NotebookDb, isFrame, type Rows, type WriteContext } from './database.js';
 import * as sqlModule from './sql.js';
 import { md } from './md.js';
+import { checkRowType, rowTypeOf, type RowTypeInfo } from './rowtype.js';
 import { controlInfo, createUi, type ControlInfo, type ControlSpec } from './ui.js';
 import { CHART_ROWS, Chart, chart, chartFromRows, checkColumns, type ChartOutput } from './chart.js';
 import { createParam, type ParamInfo, type ParamSpec } from './params.js';
@@ -50,6 +51,8 @@ export interface CellState {
   controls: ControlInfo[];
   /** When the output is a chart: the rows it draws. */
   outputChart: ChartOutput | null;
+  /** A plain SQL query cell's row type: what its last run's columns give, what is pinned, and whether they match. */
+  rowType: RowTypeInfo | null;
 }
 
 export type ModuleLoader = (specifier: string) => Promise<Record<string, unknown>>;
@@ -384,7 +387,7 @@ export class Runtime {
       if (!this.#states.has(c.id)) {
         this.#states.set(c.id, {
           id: c.id, status: 'idle', reason: null, values: {}, hasOutput: c.output !== null, output: undefined,
-          error: null, ms: null, runs: 0, outputTable: null, outputChart: null, controls: [],
+          error: null, ms: null, runs: 0, outputTable: null, outputChart: null, controls: [], rowType: null,
         });
       }
       this.#states.get(c.id)!.hasOutput = c.output !== null;
@@ -455,6 +458,7 @@ export class Runtime {
       this.#set(id, {
         status: 'ok', reason: null, error: null, values: collected.values, output: collected.output,
         outputTable: collected.outputTable, outputChart: collected.outputChart, ms: performance.now() - t0, runs: s.runs + 1, controls: declaring.controls,
+        rowType: this.#rowType(c, collected.values),
       });
     } catch (err) {
       this.#context = null;
@@ -523,6 +527,19 @@ export class Runtime {
   #fail(id: string, err: unknown, ms: number | null = null, controls?: ControlInfo[]) {
     const e = err instanceof Error ? err : new Error(String(err));
     this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, outputChart: null, ms, ...(controls && { controls }) });
+  }
+
+  /** A plain SQL query cell's row type after a run, from its collected result's columns (DESIGN.md decision 11). */
+  #rowType(c: Cell, values: Record<string, unknown>): RowTypeInfo | null {
+    if (c.sql?.kind !== 'query') return null;
+    const info = sqlModule.collectedTable(values[c.sql.name]);
+    if (!info) return null;
+    const pinned = c.sql.rowType;
+    return {
+      inferred: rowTypeOf(info.columns, info.columnTypes),
+      pinned,
+      mismatch: pinned === null ? null : checkRowType(this.#ts, pinned, info.columns, info.columnTypes),
+    };
   }
 
   /** A built notebook's factory (smaltnb/library) imported by this notebook runs on this notebook's database. */

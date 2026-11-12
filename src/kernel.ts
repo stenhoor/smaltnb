@@ -19,6 +19,7 @@ import { Markdown } from './md.js';
 import type { ChartOutput } from './chart.js';
 import type { ParamInfo } from './params.js';
 import type { ControlInfo } from './ui.js';
+import type { RowTypeInfo } from './rowtype.js';
 
 /** The end of a message channel: a worker's `self`, a `MessagePort`, or anything shaped like them. */
 export interface MessageEndpoint {
@@ -49,6 +50,8 @@ export interface CellView {
   runs: number;
   /** The controls (ui.*) the cell declared when it last ran, with their values. */
   controls: ControlInfo[];
+  /** A plain SQL query cell's row type, inferred and pinned (see smaltnb/rowtype). */
+  rowType: RowTypeInfo | null;
 }
 
 /** The notebook as the page needs it to draw cells, the graph and diagnostics. */
@@ -159,6 +162,7 @@ export function view(state: CellState): CellView {
   return {
     id: state.id, status: state.status, reason: state.reason, error: state.error, ms: state.ms, runs: state.runs,
     controls: state.controls.map((c) => ({ ...c, ...(c.options && { options: [...c.options] }) })),
+    rowType: state.rowType && { ...state.rowType },
     output: state.outputChart && state.runs > 0 ? { kind: 'chart', chart: state.outputChart }
       : state.outputTable ? { kind: 'table', table: tableInfo(state.outputTable), preview: state.outputTable.preview }
       : state.hasOutput && state.runs > 0 && state.output instanceof Markdown ? { kind: 'markdown', text: state.output.text }

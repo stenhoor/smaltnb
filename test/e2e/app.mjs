@@ -201,6 +201,28 @@ try {
     assert.deepEqual(await gridRows(id), [['1']]);
   });
 
+  await step('Pin types writes the result\'s row type into a SQL cell; after an edit, Update types brings it up to date', async () => {
+    const id = await page.evaluate(() => [...document.querySelectorAll('.cell')].at(-1).dataset.cell);
+    const pin = `[data-cell="${id}"] .actions button:has-text("Pin types")`;
+    await page.waitForSelector(pin);
+    await page.click(pin);
+    // The SQL stays as it was; the TypeScript it is saved as now has the type.
+    await page.waitForFunction((id) => !document.querySelector(`[data-cell="${id}"] .actions button`)?.textContent?.includes('Pin types'), id);
+    assert.equal(await cellText(id), 'SELECT 1 AS one');
+    await page.click(`[data-cell="${id}"] .view-toggle`);
+    assert.match(await cellText(id), /export const \w+ = sql<\{ one: number \}>`SELECT 1 AS one`;/);
+    await page.click(`[data-cell="${id}"] .view-toggle`);
+    // A new column: the pinned type no longer matches the run.
+    await setCell(id, "SELECT 1 AS one, 'a' AS two");
+    await page.waitForSelector(`[data-cell="${id}"] .types-warn`, { timeout: 30000 });
+    assert.match(await page.getAttribute(`[data-cell="${id}"] .types-warn`, 'title'), /the result has "two", which the type doesn't/);
+    await page.click(`[data-cell="${id}"] .actions button:has-text("Update types")`);
+    await page.waitForFunction((id) => !document.querySelector(`[data-cell="${id}"] .types-warn`), id, { timeout: 30000 });
+    await page.click(`[data-cell="${id}"] .view-toggle`);
+    assert.match(await cellText(id), /sql<\{ one: number; two: string \}>/);
+    await page.click(`[data-cell="${id}"] .view-toggle`);
+  });
+
   await step('a text cell shows its Markdown to edit and renders it below; + Text adds one', async () => {
     assert.match(await cellText('intro'), /^# Shop analysis\nRevenue by region from the \*\*orders\*\* table/);
     assert.equal(await page.textContent('[data-cell="intro"] .markdown h1'), 'Shop analysis');

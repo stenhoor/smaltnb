@@ -85,13 +85,19 @@ function withSql(view: SqlView, text: string): SqlView {
     : { kind: 'script', statements: splitStatements(text).map((st) => st.sql) };
 }
 
+function rowTypeOf(view: SqlView | null | undefined): string | null {
+  return view?.kind === 'query' ? view.rowType : null;
+}
+
 function onNotebook(nb: NotebookView) {
   const before = notebook;
   notebook = nb;
   const next = split(source, nb);
   // Redraw when the cells change, or when a cell starts or stops being plain SQL.
   const same = next.length === chunks.length && next.every((c, i) => c.id === chunks[i]!.id
-    && !!before?.cells[i]?.sql === !!nb.cells[i]?.sql);
+    && !!before?.cells[i]?.sql === !!nb.cells[i]?.sql
+    // A pinned row type changed (Pin types): the SQL view writes the cell back with the new one.
+    && rowTypeOf(before?.cells[i]?.sql) === rowTypeOf(nb.cells[i]?.sql));
   chunks = next;
   if (!same && !sourceView) render();
   showDiagnostics(nb);
@@ -258,6 +264,20 @@ function focusNext(id: string) {
 }
 
 /** The source from the editors: each cell's text, separated by a blank line. */
+/** Writes a row type into a plain SQL query cell: `sql<{ … }>`, keeping its SQL as it is in the editor. */
+async function pinRowType(id: string, rowType: string) {
+  await flush();
+  const i = chunks.findIndex((c) => c.id === id);
+  const meta = notebook?.cells[i];
+  const chunk = chunks[i];
+  if (!meta?.sql || meta.sql.kind !== 'query' || !meta.body || !chunk) return;
+  const head = chunk.text.slice(0, meta.body.start - chunk.start).trimEnd();
+  const text = `${head}\n${sqlBody({ ...meta.sql, rowType })}`;
+  source = [...ui.values()].map((c) => (c.id === id ? text : c.text()).replace(/\n+$/, '')).join('\n\n') + '\n';
+  save();
+  await kernel.update(source).catch((err: Error) => toast(err.message, 'error'));
+}
+
 function currentSource(): string {
   if (sourceView && sourceEditor) return sourceEditor.value.replace(/\n*$/, '\n');
   return [...ui.values()].map((c) => c.text().replace(/\n+$/, '')).join('\n\n') + '\n';
@@ -342,6 +362,17 @@ function showState(s: CellView) {
   if (meta && meta.kind !== 'setup') {
     actions.push(button(s.status === 'held' ? 'Run and write' : 'Run', 'Run this cell (Ctrl+Enter)', () => void runCells([s.id])));
     if (s.status === 'skipped' && meta.when) actions.push(button('Run once anyway', 'Ignore the guard this time', () => void runCells([s.id], true)));
+  }
+  // Row types (DESIGN.md decision 11): pin what the run's columns give, or say when what is pinned no longer matches.
+  const rt = s.rowType;
+  if (rt && s.status === 'ok' && rt.pinned === null) {
+    actions.unshift(button('Pin types', `Write the result's row type into the notebook: sql<${rt.inferred}>`, () => void pinRowType(s.id, rt.inferred)));
+  } else if (rt && rt.mismatch) {
+    const warn = document.createElement('span');
+    warn.className = 'types-warn';
+    warn.textContent = 'types out of date';
+    warn.title = `The pinned row type no longer matches the result: ${rt.mismatch}`;
+    actions.unshift(warn, button('Update types', `Pin sql<${rt.inferred}>`, () => void pinRowType(s.id, rt.inferred)));
   }
   c.actions.replaceChildren(...actions);
   showControls(c, s.controls);

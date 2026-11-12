@@ -64,6 +64,11 @@ The run goes into the job summary (`summary: 'false'` turns that off), and the s
 reach the run as environment variables, never as text inside its script. Secrets stay secret: a notebook reads none,
 and the action adds none.
 
+## Building libraries
+
+`smaltnb build` writes notebooks as libraries, with a typed factory for apps and other notebooks: see
+[Built notebooks](./notebooks#built-notebooks-the-typed-factory).
+
 ## From code
 
 `runNotebook(source, options)` from `smaltnb/report` is the same run without Node: it takes the

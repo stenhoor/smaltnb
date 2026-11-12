@@ -2,13 +2,14 @@
 // smaltql and smaltdf (pinned in packed.json: `npm run deps`).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { smaltty as ts } from 'smaltkit/typescript';
 import { Database, registerLanguage } from 'smaltdb/engine';
 import { sqlLanguage } from 'smaltql';
 import * as df from '@smaltdb/df';
+import { NodeVfs } from '@smaltworks/smaltdb-node';
 import { reportJson, reportMarkdown, reportText, runNotebook } from 'smaltnb/report';
 // @ts-expect-error: the command has no declarations; it is run, not imported, by users
 import { main, parseArgs } from '../dist/cli/smaltnb.js';
@@ -129,8 +130,31 @@ test('smaltnb run: usage errors exit 2 with the help; --help exits 0', async () 
   assert.equal((await run('--help')).code, 0);
 });
 
-test('smaltnb run --db without the file plugin says what to install, and exits 2', async () => {
-  const r = await run('run', shop, '--db', join(tmpdir(), 'never.db'));
-  assert.equal(r.code, 2);
-  assert.match(r.err, /--db \(a database in a file\) needs @smaltworks\/smaltdb-node, which isn't installed/);
-});
+test('smaltnb run --db keeps the database in a file (smaltdb Node): a later run reads what an earlier one wrote', withDir(async (dir) => {
+  const db = join(dir, 'data', 'shop.db');
+  const first = await run('run', shop, '--db', db, '--init', seed, '--actions', '--quiet');
+  assert.equal(first.code, 0, first.err);
+  assert.deepEqual(readdirSync(join(dir, 'data')).filter((f) => f.endsWith('.lock')), [], 'the file is unlocked after the run');
+  // No --init this time: the orders, and the totals the action saved, are in the file.
+  const report = join(dir, 'run.json');
+  const second = await run('run', shop, '--db', db, '--report', report, '--quiet');
+  assert.equal(second.code, 0, second.err);
+  assert.equal(JSON.parse(readFileSync(report, 'utf8')).cells.find((c: { id: string }) => c.id === 'byRegion').output.rowCount, 4);
+  const opened = await Database.open(new NodeVfs({ root: join(dir, 'data') }), 'shop.db');
+  try {
+    assert.deepEqual(opened.query('SELECT count(*) FROM region_totals').rows, [[4]]);
+  } finally {
+    opened.close();
+  }
+}));
+
+test('smaltnb run --db on a database that is open elsewhere fails with the reason, exit 2', withDir(async (dir) => {
+  const held = await Database.open(new NodeVfs({ root: dir }), 'shop.db');
+  try {
+    const r = await run('run', shop, '--db', join(dir, 'shop.db'));
+    assert.equal(r.code, 2);
+    assert.match(r.err, /smaltnb: cannot lock .*shop\.db: it is open in this process/);
+  } finally {
+    held.close();
+  }
+}));

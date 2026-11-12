@@ -13,6 +13,7 @@ import { sqlBody, type SqlView } from '../src/format.js';
 import { sqlCellLanguage } from './sql-language.js';
 import { markdownLanguage } from './md-language.js';
 import { markdown } from 'smaltkit/markdown';
+import { drawGraph, updateGraphNode } from './graph-view.js';
 import { choiceControl } from 'smaltkit/controls';
 import type { ControlInfo } from '../src/ui.js';
 import { areaChart, barChart, chartData, columnChart, donutChart, lineChart, pieChart, scatterChart, type ChartColumn, type ChartContext } from 'smaltkit/charts';
@@ -89,6 +90,39 @@ function rowTypeOf(view: SqlView | null | undefined): string | null {
   return view?.kind === 'query' ? view.rowType : null;
 }
 
+// The graph view: open or closed is remembered in this browser.
+const GRAPH = 'smaltnb:graph';
+const graphEl = $('#graph-panel');
+const graphButton = $<HTMLButtonElement>('#graph');
+let graphOpen = false;
+try {
+  graphOpen = localStorage.getItem(GRAPH) === '1';
+} catch {
+  // Storage blocked: the graph starts closed.
+}
+
+function showGraph() {
+  graphEl.hidden = !graphOpen;
+  graphButton.setAttribute('aria-pressed', String(graphOpen));
+  if (!graphOpen || !notebook) return;
+  drawGraph(graphEl, notebook, (id) => kernel.state(id), (id) => {
+    const c = ui.get(id);
+    if (!c) return;
+    c.editor.focus();
+    c.root.scrollIntoView({ block: 'start' }); // after focus, which scrolls too; scroll-margin keeps it below the bar
+  });
+}
+
+graphButton.addEventListener('click', () => {
+  graphOpen = !graphOpen;
+  try {
+    localStorage.setItem(GRAPH, graphOpen ? '1' : '0');
+  } catch {
+    // Storage blocked: not remembered.
+  }
+  showGraph();
+});
+
 function onNotebook(nb: NotebookView) {
   const before = notebook;
   notebook = nb;
@@ -101,6 +135,7 @@ function onNotebook(nb: NotebookView) {
   chunks = next;
   if (!same && !sourceView) render();
   showDiagnostics(nb);
+  showGraph();
   typeCheck();
 }
 
@@ -351,6 +386,7 @@ function button(label: string, title: string, onClick: () => void): HTMLButtonEl
 }
 
 function showState(s: CellView) {
+  if (graphOpen) updateGraphNode(graphEl, s);
   const c = ui.get(s.id);
   if (!c) return;
   c.root.dataset.status = s.status;

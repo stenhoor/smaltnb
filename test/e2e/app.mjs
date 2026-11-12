@@ -91,6 +91,35 @@ try {
     assert.equal(await page.textContent('[data-cell="bigOrders"] .control-select .sk-chip.sk-on'), 'north');
   });
 
+  await step('the graph view: a box per cell, coloured by status, an arrow per read; a click goes to the cell', async () => {
+    await page.click('#graph');
+    await page.waitForSelector('#graph-panel svg g.node');
+    const nodes = await page.$$eval('#graph-panel g.node', (els) => els.map((e) => [e.dataset.node, e.dataset.status]));
+    const cells = await page.$$eval('.cell', (els) => els.map((e) => e.dataset.cell).filter((id) => id !== 'setup'));
+    assert.deepEqual(nodes.map((n) => n[0]).sort(), [...cells].sort(), 'every cell but setup');
+    assert.deepEqual(nodes.find((n) => n[0] === 'byRegion'), ['byRegion', 'ok']);
+    assert.deepEqual(nodes.find((n) => n[0] === 'save totals'), ['save totals', 'idle']);
+    const edges = await page.$$eval('#graph-panel path.edge', (els) => els.map((e) => `${e.dataset.from}>${e.dataset.to}`));
+    for (const e of ['params>orders', 'orders>byRegion', 'byRegion>revenueChart', 'orders>bigOrders', 'byRegion>save totals']) assert.ok(edges.includes(e), e);
+    // Depth: byRegion sits to the right of orders.
+    const x = (id) => page.$eval(`#graph-panel g.node[data-node="${id}"]`, (g) => g.getBoundingClientRect().x);
+    assert.ok((await x('byRegion')) > (await x('orders')));
+    await page.hover('#graph-panel g.node[data-node="orders"]');
+    assert.ok(await page.$eval('#graph-panel svg', (s) => s.classList.contains('focus')));
+    assert.ok(await page.$eval('#graph-panel g.node[data-node="byRegion"]', (g) => g.classList.contains('near')));
+    await page.click('#graph-panel g.node[data-node="bigOrders"]');
+    await page.waitForFunction(() => {
+      const r = document.querySelector('.cell[data-cell="bigOrders"]').getBoundingClientRect();
+      return r.top >= 0 && r.top < innerHeight;
+    }, null, { timeout: 5000 });
+    // Open stays open across a reload; then close it.
+    await page.reload();
+    await page.waitForSelector('#graph-panel:not([hidden]) svg g.node');
+    await until('byRegion', 'ok');
+    await page.click('#graph');
+    assert.equal(await page.$eval('#graph-panel', (e) => e.hidden), true);
+  });
+
   await step('type errors are warnings: marked in the cell they are in, and the notebook still runs', async () => {
     const marks = (id) => page.evaluate((id) => [...document.querySelectorAll(`[data-cell="${id}"] mark.sk-ed-warn`)].map((m) => [m.textContent, m.title]), id);
     const allMarks = () => page.evaluate(() => document.querySelectorAll('mark.sk-ed-warn').length);

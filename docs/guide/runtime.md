@@ -1,7 +1,7 @@
 # The runtime
 
-`smaltnb/runtime` runs a notebook. It is the core the [kernel](#the-kernel) serves to the page and, later, headless
-runs use. Given a database, it runs SQL and smaltdf cells ([below](#the-database)). The notebook page comes next in
+`smaltnb/runtime` runs a notebook. It is the core the [kernel](#the-kernel) serves to the page and
+[headless runs](./headless) use. Given a database, it runs SQL and smaltdf cells ([below](#the-database)). The notebook page comes next in
 [milestone 1](./status).
 
 ```ts

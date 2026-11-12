@@ -9,4 +9,5 @@ export * from './sql.js';
 export * from './md.js';
 export * from './ui.js';
 export * from './chart.js';
+export * from './report.js';
 export * from './database.js';

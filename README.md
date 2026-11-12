@@ -43,6 +43,8 @@ export const clean = raw.filter(col('qty').gt(0));
 | `smaltnb/runtime` | `createRuntime(source, { ts, importModule })`: runs cells as async functions, keeps each cell's state (`ok`, `stale`, `skipped`, `error`, …) and output, and reacts to `update(source)`, `run(ids)` and `runAll()` by the notebook's rules. |
 | `smaltnb/kernel` | `serveKernel(self, { ts, importModule })`: the runtime in a Web Worker, over messages. |
 | `smaltnb/client` | `KernelClient`: the page's side. `open`, `update`, `run`, `runAll`, and `restart()` to stop a run that never finishes. |
+| `smaltnb/report` | `runNotebook(source, options)`: a whole run, as a scheduled run does, and its report as text, JSON or Markdown. |
+| `smaltnb run` | The command: runs a notebook in Node with parameters, prints each cell's status, writes reports, and exits 1 when a cell failed. Also a GitHub Action (`uses: stenhoor/smaltnb@main`). See [Headless runs](https://stenhoor.github.io/smaltnb/guide/headless). |
 
 TypeScript is read, bound and stripped by [smaltty](https://stenhoor.github.io/smaltty/), our own TypeScript kit, passed
 in as `ts`: `import { smaltty } from 'smaltkit/typescript'`, in a page and in Node alike. Types are removed, never

@@ -1,0 +1,56 @@
+name: smaltnb run
+description: Run a smaltnb notebook (.nb.ts) from start to end, with parameters, and put the report in the job summary.
+author: stenhoor
+
+inputs:
+  notebook:
+    description: The notebook to run, relative to the workspace.
+    required: true
+  params:
+    description: Parameters, one name=value per line.
+    default: ''
+  actions:
+    description: Run the notebook's actions too ('true' or 'false').
+    default: 'false'
+  init:
+    description: SQL files to run before the notebook, one per line, to create or fill tables.
+    default: ''
+  db:
+    description: Keep the database in this file (needs @smaltworks/smaltdb-node). Default, empty, is in memory.
+    default: ''
+  report:
+    description: Write the run as JSON to this file.
+    default: ''
+  summary:
+    description: Add the run, as Markdown, to the job summary ('true' or 'false').
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    # smaltnb, with smaltdb, smaltql and smaltdf pinned in packed.json until they are on npm.
+    - shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --no-audit --no-fund && node scripts/fetch-packed.mjs
+    # Inputs reach the script as environment variables, never as text inside it.
+    - shell: bash
+      env:
+        NB: ${{ inputs.notebook }}
+        NB_PARAMS: ${{ inputs.params }}
+        NB_ACTIONS: ${{ inputs.actions }}
+        NB_INIT: ${{ inputs.init }}
+        NB_DB: ${{ inputs.db }}
+        NB_REPORT: ${{ inputs.report }}
+        NB_SUMMARY: ${{ inputs.summary }}
+      run: |
+        args=(run "$NB")
+        while IFS= read -r p; do [ -n "$p" ] && args+=(--param "$p"); done <<< "$NB_PARAMS"
+        while IFS= read -r f; do [ -n "$f" ] && args+=(--init "$f"); done <<< "$NB_INIT"
+        [ "$NB_ACTIONS" = "true" ] && args+=(--actions)
+        [ -n "$NB_DB" ] && args+=(--db "$NB_DB")
+        [ -n "$NB_REPORT" ] && args+=(--report "$NB_REPORT")
+        [ "$NB_SUMMARY" = "true" ] && args+=(--md -)
+        node "$GITHUB_ACTION_PATH/dist/cli/smaltnb.js" "${args[@]}"

@@ -64,6 +64,7 @@ export default defineConfig({
           { text: 'The notebook page', link: '/guide/page' },
           { text: 'The notebook format', link: '/guide/format' },
           { text: 'The runtime', link: '/guide/runtime' },
+          { text: 'Headless runs', link: '/guide/headless' },
           { text: 'Status', link: '/guide/status' },
         ],
       },

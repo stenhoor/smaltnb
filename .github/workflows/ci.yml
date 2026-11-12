@@ -32,3 +32,18 @@ jobs:
       - run: npm run e2e
         env:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules     # builds the notebook page and drives it in headless Chromium
+
+  # The GitHub Action (action.yml) in this repository, on the shop example: a headless run with parameters and actions.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          notebook: examples/shop.nb.ts
+          init: examples/shop.sql
+          params: |
+            minQty=2
+          actions: 'true'
+          report: run.json
+      - run: node -e "const r = require('./run.json'); if (!r.ok || !r.actions || r.params[0].value !== '2') process.exit(1)"

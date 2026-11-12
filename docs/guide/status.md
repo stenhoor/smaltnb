@@ -10,7 +10,7 @@ smaltnb is in early development and not published. This page says what is in, as
 | 2 | **Git**: a repository in the browser (OPFS), synced with GitHub; per-cell diffs and commits | Planned |
 | 3 | **Libraries**: notebook imports, the typed factory, `smaltnb build` | Planned |
 | 4 | **Types and UI**: pinned row types, `ui.*` controls, charts, the on-disk result store | Controls and charts in ([Controls](./notebooks#controls), [Charts](./notebooks#charts)); the rest planned |
-| 5 | **Headless**: `smaltnb run` in Node and GitHub Actions | Planned |
+| 5 | **Headless**: `smaltnb run` in Node and GitHub Actions | In ([Headless runs](./headless)); a database in a file needs [smaltdb Node](https://github.com/stenhoor/smaltdb-node) |
 
 TypeScript is read, bound and stripped by [smaltty](https://stenhoor.github.io/smaltty/) (from `smaltkit/typescript`)
 since 2026-11-08, in place of the TypeScript compiler: the page no longer loads 8.7 MB before its first run. Since

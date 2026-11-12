@@ -109,7 +109,7 @@ export const bigOrders = sql`SELECT * FROM ${orders}
 - **Values belong to the page,** kept per cell in the order the cell declares them, and kept across a restart. A value
   that no longer fits the control (the options changed, out of range) goes back to the default.
 - **Controls or parameters?** A [parameter](#parameters) is the notebook's input from outside: in the page's address
-  and, later, a headless run's arguments. A control is for exploring in the page: a headless run, or an import, uses
+  and a [headless run](./headless)'s arguments. A control is for exploring in the page: a headless run, or an import, uses
   its default.
 
 ## Guards

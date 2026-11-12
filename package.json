@@ -37,6 +37,10 @@
       "types": "./dist/chart.d.ts",
       "default": "./dist/chart.js"
     },
+    "./report": {
+      "types": "./dist/report.d.ts",
+      "default": "./dist/report.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "default": "./dist/runtime.js"
@@ -51,6 +55,9 @@
     },
     "./package.json": "./package.json"
   },
+  "bin": {
+    "smaltnb": "./dist/cli/smaltnb.js"
+  },
   "files": [
     "dist",
     "src"
@@ -60,10 +67,10 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.cli.json",
     "prepare": "npm run build",
     "deps": "node scripts/fetch-packed.mjs",
-    "typecheck": "node scripts/fetch-packed.mjs --check && tsc -p . && tsc -p examples && tsc -p app",
+    "typecheck": "node scripts/fetch-packed.mjs --check && tsc -p . && tsc -p examples && tsc -p app && tsc -p tsconfig.cli.json --noEmit",
     "test": "npm run build && node scripts/fetch-packed.mjs --check && node --test test/*.test.ts",
     "app:build": "node scripts/build-app.mjs",
     "app": "node scripts/build-app.mjs && node scripts/serve-app.mjs",
@@ -80,10 +87,26 @@
     "vitepress": "^1.6.4"
   },
   "peerDependencies": {
-    "smaltkit": "*"
+    "smaltkit": "*",
+    "smaltdb": ">=0.9.0 <0.10.0",
+    "smaltql": "*",
+    "@smaltdb/df": "*",
+    "@smaltworks/smaltdb-node": "*"
   },
   "peerDependenciesMeta": {
     "smaltkit": {
+      "optional": true
+    },
+    "smaltdb": {
+      "optional": true
+    },
+    "smaltql": {
+      "optional": true
+    },
+    "@smaltdb/df": {
+      "optional": true
+    },
+    "@smaltworks/smaltdb-node": {
       "optional": true
     }
   }

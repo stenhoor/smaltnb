@@ -65,6 +65,32 @@ try {
     for (const region of ['north', 'south', 'east', 'west']) assert.ok(text.includes(region), region);
   });
 
+  await step('controls (ui.*) show under their cell; a change reruns it with the new value', async () => {
+    await until('bigOrders', 'ok');
+    const count = () => page.evaluate(() => document.querySelector('[data-cell="bigOrders"] .table-foot span')?.textContent ?? '');
+    const at1000 = await count();
+    assert.equal(await page.$$eval('[data-cell="bigOrders"] .controls .control', (els) => els.length), 2);
+    // The slider: lower the threshold, and more orders come back.
+    await page.evaluate(() => {
+      const input = document.querySelector('[data-cell="bigOrders"] .control-slider input');
+      input.value = '200';
+      input.dispatchEvent(new Event('input'));
+      input.dispatchEvent(new Event('change'));
+    });
+    await page.waitForFunction((b) => {
+      const t = document.querySelector('[data-cell="bigOrders"] .table-foot span')?.textContent;
+      return !!t && t !== b;
+    }, at1000, { timeout: 30000 });
+    assert.equal(await page.textContent('[data-cell="bigOrders"] .control-slider output'), '200');
+    // The select: a chip per region; picking one keeps only its orders.
+    await page.click('[data-cell="bigOrders"] .control-select .sk-chip:has-text("north")');
+    await page.waitForFunction(() => {
+      const rows = [...document.querySelectorAll('[data-cell="bigOrders"] tbody tr[data-row] td[data-col="1"]')].map((td) => td.textContent);
+      return rows.length > 0 && rows.every((r) => r === 'north');
+    }, null, { timeout: 30000 });
+    assert.equal(await page.textContent('[data-cell="bigOrders"] .control-select .sk-chip.sk-on'), 'north');
+  });
+
   await step('type errors are warnings: marked in the cell they are in, and the notebook still runs', async () => {
     const marks = (id) => page.evaluate((id) => [...document.querySelectorAll(`[data-cell="${id}"] mark.sk-ed-warn`)].map((m) => [m.textContent, m.title]), id);
     const allMarks = () => page.evaluate(() => document.querySelectorAll('mark.sk-ed-warn').length);

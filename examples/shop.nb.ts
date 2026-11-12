@@ -1,7 +1,7 @@
 // A notebook with SQL and dataframes on a smaltdb database: smaltdf reads a table, SQL summarises the collected
-// frame, a chart draws it, and an action saves the summary. It typechecks with tsc as written, and runs (see
-// test/database.test.ts).
-import { cell, action, sql, exec, param, md, chart } from 'smaltnb';
+// frame, a chart draws it, controls pick the big orders, and an action saves the summary. It typechecks with tsc as
+// written, and runs (see test/database.test.ts).
+import { cell, action, sql, exec, param, md, ui, chart } from 'smaltnb';
 import { col, table } from '@smaltdb/df';
 
 cell('intro', { lang: 'md' });
@@ -23,6 +23,13 @@ byRegion;
 
 cell('revenueChart');
 chart.bar(byRegion, { x: 'region', y: 'revenue', labels: true });
+
+cell('bigOrders');
+const region = ui.select(['all', 'north', 'east', 'south', 'west'], 'all', { label: 'Region' });
+const atLeast = ui.slider(0, 2000, 1000, { step: 100, label: 'Revenue at least' });
+export const bigOrders = sql`SELECT id, region, qty, price, revenue FROM ${orders}
+  WHERE revenue >= ${atLeast.value} AND ${region.value} IN ('all', region) ORDER BY revenue DESC, id`;
+bigOrders;
 
 action('save totals', { lang: 'sql' });
 await exec`DELETE FROM region_totals`;

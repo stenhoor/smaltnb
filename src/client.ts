@@ -36,6 +36,7 @@ export class KernelClient {
   #fileName: string | undefined;
   #params: ParamInfo[] = [];
   #paramValues: Record<string, string> = {};
+  #controlValues: Record<string, Record<number, unknown>> = {};
 
   constructor(createWorker: () => WorkerLike, options: KernelClientOptions = {}) {
     this.#create = createWorker;
@@ -65,6 +66,7 @@ export class KernelClient {
     this.#source = source;
     this.#fileName = fileName;
     this.#paramValues = { ...params };
+    this.#controlValues = {};
     this.#states.clear();
     this.#params = [];
     return this.#send({ type: 'open', source, params, ...(fileName !== undefined && { fileName }) });
@@ -77,6 +79,14 @@ export class KernelClient {
       else this.#paramValues[k] = v;
     }
     return this.#send({ type: 'setParams', values });
+  }
+
+  /** Sets a control's value (null goes back to its default): its cell runs again, and what reads it reacts. */
+  setControl(cell: string, index: number, value: unknown): Promise<void> {
+    const values = (this.#controlValues[cell] ??= {});
+    if (value === null) delete values[index];
+    else values[index] = value;
+    return this.#send({ type: 'setControl', cell, index, value });
   }
 
   /** Sends an edit: changed cells and what follows react. */
@@ -114,7 +124,7 @@ export class KernelClient {
       this.#setState({ ...s, status: 'idle', reason: 'the kernel was restarted', output: { kind: 'none' }, error: null });
     }
     if (this.#source !== null) {
-      await this.#send({ type: 'open', source: this.#source, params: this.#paramValues, ...(this.#fileName !== undefined && { fileName: this.#fileName }) });
+      await this.#send({ type: 'open', source: this.#source, params: this.#paramValues, controls: this.#controlValues, ...(this.#fileName !== undefined && { fileName: this.#fileName }) });
       // The new kernel reports its cells as idle with no reason; keep the reason until they run again.
       for (const s of this.#states.values()) if (s.status === 'idle') this.#setState({ ...s, reason: 'the kernel was restarted' });
     }
@@ -155,6 +165,8 @@ export class KernelClient {
         this.#notebook = reply.notebook;
         const ids = new Set(reply.notebook.cells.map((c) => c.id));
         for (const id of [...this.#states.keys()]) if (!ids.has(id)) this.#states.delete(id);
+        // Controls of cells that are gone are dropped with them, as in the kernel.
+        for (const id of Object.keys(this.#controlValues)) if (!ids.has(id)) delete this.#controlValues[id];
         this.#options.onNotebook?.(reply.notebook);
         return;
       }

@@ -29,6 +29,10 @@
       "types": "./dist/md.d.ts",
       "default": "./dist/md.js"
     },
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "default": "./dist/ui.js"
+    },
     "./chart": {
       "types": "./dist/chart.d.ts",
       "default": "./dist/chart.js"

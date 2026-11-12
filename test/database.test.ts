@@ -208,8 +208,14 @@ test('examples/shop.nb.ts runs: smaltdf, then SQL over the collected frame, then
   const { rt, db } = runtime(source);
   db.exec('CREATE TABLE region_totals(region TEXT, revenue REAL)');
   await rt.runAll();
-  assert.deepEqual(status(rt), { setup: 'ok', intro: 'ok', params: 'ok', orders: 'ok', byRegion: 'ok', revenueChart: 'ok', 'save totals': 'idle' });
+  assert.deepEqual(status(rt), { setup: 'ok', intro: 'ok', params: 'ok', orders: 'ok', byRegion: 'ok', revenueChart: 'ok', bigOrders: 'ok', 'save totals': 'idle' });
   assert.deepEqual(rt.state('byRegion')!.outputTable!.preview.rows, [['north', 79.5], ['south', 7.25]]);
+  assert.equal(rt.state('bigOrders')!.outputTable!.rowCount, 0, 'no order reaches the default 1000');
+  await rt.setControl('bigOrders', 1, 0);
+  assert.deepEqual(rt.state('bigOrders')!.outputTable!.preview.rows.map((r) => r[0]), [1, 4, 3]);
+  await rt.setControl('bigOrders', 0, 'north');
+  assert.deepEqual(rt.state('bigOrders')!.outputTable!.preview.rows.map((r) => r[0]), [1, 4]);
+  assert.deepEqual(rt.state('bigOrders')!.controls.map((c) => c.value), ['north', 0]);
   assert.deepEqual(rt.state('revenueChart')!.outputChart!.rows, [['north', 79.5], ['south', 7.25]]);
   await rt.run(['save totals']);
   assert.equal(rt.state('save totals')!.status, 'ok');

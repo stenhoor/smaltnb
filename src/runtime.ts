@@ -10,6 +10,7 @@ import { action, cell } from './notebook.js';
 import { HeldWrite, NotebookDb, isFrame, type Rows, type WriteContext } from './database.js';
 import * as sqlModule from './sql.js';
 import { md } from './md.js';
+import { controlInfo, createUi, type ControlInfo, type ControlSpec } from './ui.js';
 import { CHART_ROWS, Chart, chart, chartFromRows, checkColumns, type ChartOutput } from './chart.js';
 import { createParam, type ParamInfo, type ParamSpec } from './params.js';
 import { Relation, SqlQuery, registerCollected, statement, type CollectedTable } from './sql.js';
@@ -45,6 +46,8 @@ export interface CellState {
   runs: number;
   /** When the output is a collected result: its table, and its first rows. */
   outputTable: (CollectedTable & { preview: Rows }) | null;
+  /** The controls (ui.*) the cell declared when it last ran, with their values. */
+  controls: ControlInfo[];
   /** When the output is a chart: the rows it draws. */
   outputChart: ChartOutput | null;
 }
@@ -75,6 +78,8 @@ export interface RuntimeOptions {
   params?: Record<string, string>;
   /** Called with the notebook's parameters whenever they change: declared, removed, or given a new value. */
   onParams?: (params: ParamInfo[]) => void;
+  /** Control values set in the page, by cell and the control's index (after a restart). */
+  controls?: Record<string, Record<number, unknown>>;
 }
 
 export interface RunOptions {
@@ -120,6 +125,9 @@ export class Runtime {
   #paramValues: Map<string, string>;
   #paramInfo = new Map<string, ParamInfo>();
   #paramsSent = '[]';
+  #controlValues = new Map<string, Map<number, unknown>>();
+  /** The controls the running cell has declared so far. */
+  #declaring: { cell: string; controls: ControlInfo[] } | null = null;
 
   constructor(source: string, options: RuntimeOptions) {
     this.#ts = options.ts;
@@ -130,6 +138,7 @@ export class Runtime {
       smaltnb: {
         ...sqlModule,
         md,
+        ui: createUi((spec) => this.#resolveControl(spec)),
         chart,
         cell,
         action,
@@ -140,6 +149,9 @@ export class Runtime {
       },
     };
     this.#paramValues = new Map(Object.entries(options.params ?? {}));
+    for (const [cell, values] of Object.entries(options.controls ?? {})) {
+      this.#controlValues.set(cell, new Map(Object.entries(values).map(([i, v]) => [Number(i), v])));
+    }
     this.#load(source);
   }
 
@@ -166,6 +178,41 @@ export class Runtime {
       this.#markStale(plan.stale, 'a parameter changed');
       for (const id of plan.run) await this.#execute(id, false, false);
     });
+  }
+
+  /**
+   * Sets a control's value (from the page; null goes back to its default). The cell that declares it runs again, and
+   * what reads the cell reacts as to an edit.
+   */
+  setControl(cell: string, index: number, value: unknown): Promise<void> {
+    return this.#enqueue(async () => {
+      this.#cell(cell);
+      const values = this.#controlValues.get(cell) ?? new Map<number, unknown>();
+      if (value === null) values.delete(index);
+      else values.set(index, value);
+      this.#controlValues.set(cell, values);
+      const plan = propagate(this.#graph, [], { run: [cell] });
+      this.#markStale(plan.stale, 'a control changed');
+      for (const id of plan.run) await this.#execute(id, false, false);
+    });
+  }
+
+  /** A control's value: the one set in the page if it still fits the control, else its default. */
+  #resolveControl<T>(spec: ControlSpec<T>): T {
+    const d = this.#declaring;
+    if (!d) return spec.default; // declared outside a cell's run (in a function called later)
+    const index = d.controls.length;
+    const set = this.#controlValues.get(d.cell);
+    let value = spec.default;
+    if (set?.has(index)) {
+      try {
+        value = spec.check(set.get(index));
+      } catch {
+        set.delete(index); // the control changed in the code: its old value no longer fits
+      }
+    }
+    d.controls.push(controlInfo(index, spec, value));
+    return value;
   }
 
   #resolveParam<T>(name: string, spec: ParamSpec<T>): T {
@@ -290,6 +337,7 @@ export class Runtime {
     for (const id of [...this.#states.keys()]) {
       if (ids.has(id)) continue;
       this.#states.delete(id);
+      this.#controlValues.delete(id);
       for (const [name, p] of [...this.#paramInfo]) if (p.cell === id) this.#paramInfo.delete(name);
       void this.#dropTables(id, new Set());
     }
@@ -300,7 +348,7 @@ export class Runtime {
       if (!this.#states.has(c.id)) {
         this.#states.set(c.id, {
           id: c.id, status: 'idle', reason: null, values: {}, hasOutput: c.output !== null, output: undefined,
-          error: null, ms: null, runs: 0, outputTable: null, outputChart: null,
+          error: null, ms: null, runs: 0, outputTable: null, outputChart: null, controls: [],
         });
       }
       this.#states.get(c.id)!.hasOutput = c.output !== null;
@@ -360,20 +408,24 @@ export class Runtime {
     this.#set(id, { status: 'running', reason: null });
     const t0 = performance.now();
     this.#context = { cell: id, allowWrites: c.kind === 'action' || requested };
+    const declaring = (this.#declaring = { cell: id, controls: [] as ControlInfo[] });
     for (const [name, p] of [...this.#paramInfo]) if (p.cell === id) this.#paramInfo.delete(name);
     try {
       const r = await compiled.fn(inputs);
       this.#context = null;
+      this.#declaring = null;
       const collected = c.live || c.kind === 'setup' ? { values: r.values, output: r.output, outputTable: null, outputChart: null } : await this.#collect(id, r.values, r.output);
       const s = this.#states.get(id)!;
       this.#set(id, {
         status: 'ok', reason: null, error: null, values: collected.values, output: collected.output,
-        outputTable: collected.outputTable, outputChart: collected.outputChart, ms: performance.now() - t0, runs: s.runs + 1,
+        outputTable: collected.outputTable, outputChart: collected.outputChart, ms: performance.now() - t0, runs: s.runs + 1, controls: declaring.controls,
       });
     } catch (err) {
       this.#context = null;
-      if (err instanceof HeldWrite) this.#set(id, { status: 'held', reason: err.message, ms: performance.now() - t0 });
-      else this.#fail(id, err, performance.now() - t0);
+      this.#declaring = null;
+      // The controls declared before the failure stay, so the page can change the value that caused it.
+      if (err instanceof HeldWrite) this.#set(id, { status: 'held', reason: err.message, ms: performance.now() - t0, controls: declaring.controls });
+      else this.#fail(id, err, performance.now() - t0, declaring.controls);
     } finally {
       this.#sendParams();
     }
@@ -432,9 +484,9 @@ export class Runtime {
     else this.#tables.delete(id);
   }
 
-  #fail(id: string, err: unknown, ms: number | null = null) {
+  #fail(id: string, err: unknown, ms: number | null = null, controls?: ControlInfo[]) {
     const e = err instanceof Error ? err : new Error(String(err));
-    this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, outputChart: null, ms });
+    this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, outputChart: null, ms, ...(controls && { controls }) });
   }
 
   #compile(c: Cell): Compiled {

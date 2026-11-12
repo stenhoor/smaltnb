@@ -45,7 +45,7 @@ await deleteFrom('orders_clean').run(db);
 await clean.insertInto(db, 'orders_clean');
 ```
 
-`cell()`, `action()`, `sql`, `exec`, `db`, `param`, `md` and `chart` exist today; `ui` is *planned*.
+`cell()`, `action()`, `sql`, `exec`, `db`, `param`, `md`, `ui` and `chart` exist today.
 [examples/shop.nb.ts](../../examples/shop.nb.ts) is a notebook with SQL and smaltdf that typechecks and runs now.
 
 ## Reactive
@@ -83,6 +83,34 @@ export const params = param({
   that isn't `YYYY-MM-DD` is an error on the declaring cell, with the reason, until the value is changed.
 - **Outside a running notebook** (a library import, a plain run) `param()` gives the defaults.
 - A parameter is declared in one cell. Parameters work with guards: `when: () => params.mode === 'full'`.
+
+## Controls
+
+`ui.*` declares an input in a cell, drawn under its code. Its `value` is what the cell reads:
+
+```ts
+cell('bigOrders');
+const region = ui.select(['all', 'north', 'south'], 'all', { label: 'Region' });
+const atLeast = ui.slider(0, 2000, 1000, { step: 100, label: 'Revenue at least' });
+export const bigOrders = sql`SELECT * FROM ${orders}
+  WHERE revenue >= ${atLeast.value} AND ${region.value} IN ('all', region)`;
+```
+
+| Control | Value |
+|---|---|
+| `ui.select(options, value)` | One of the options (its type is their union), as buttons, or a menu for more than six. |
+| `ui.slider(min, max, value, { step })` | A number between min and max. |
+| `ui.number(value, { min, max, step })` | A number, typed in. |
+| `ui.text(value)` | Text. |
+| `ui.checkbox(value)` | `true` or `false`. |
+| `ui.date(value)` | A date as `YYYY-MM-DD` text. |
+
+- **A change runs the cell again** with the new value, and what reads the cell reacts as to an edit.
+- **Values belong to the page,** kept per cell in the order the cell declares them, and kept across a restart. A value
+  that no longer fits the control (the options changed, out of range) goes back to the default.
+- **Controls or parameters?** A [parameter](#parameters) is the notebook's input from outside: in the page's address
+  and, later, a headless run's arguments. A control is for exploring in the page: a headless run, or an import, uses
+  its default.
 
 ## Guards
 

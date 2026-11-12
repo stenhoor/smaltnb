@@ -37,7 +37,8 @@ ok: 6 cells in 96 ms
   `--init` file that fails).
 - **What runs:** every cell, whatever its run mode, as **Run all** does in the page. [Controls](./notebooks#controls)
   take their defaults.
-- **Imports:** what the notebook imports is loaded from its own folder's `node_modules` first, then from smaltnb's.
+- **Imports:** [other notebooks](./notebooks#notebooks-as-libraries) (`./orders.nb.ts`) are read from the notebook's
+  folder. Packages are loaded from its folder's `node_modules` first, then from smaltnb's.
 - **Packages:** the command needs smaltkit (which reads the TypeScript), smaltdb, smaltql, and smaltdf for frames:
   smaltnb's optional peer dependencies, loaded only when the command runs. `--db` also needs smaltdb Node. A missing
   one is named, with how to install it.

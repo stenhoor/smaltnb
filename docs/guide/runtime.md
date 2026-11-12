@@ -38,7 +38,11 @@ need compiling is an error on its cell, with the notebook's line and column and 
 | `constructor(private n: number) {}` | a field `n: number`, assigned in the constructor |
 | `namespace N { export const x = 1 }` | an object: `const N = { x: 1 }` |
 
-The setup cell loads its imports with `importModule`. `import type` and type-only names are dropped.
+The setup cell loads its imports with `importModule`. `import type` and type-only names are dropped. An import of
+another notebook (`./orders.nb.ts`) is the runtime's own: given `readNotebook(path)`, which reads a notebook by its path
+relative to this one's folder, it opens the imported notebook in a runtime of its own on the same database and runs
+only the cells the imported names need ([Notebooks as libraries](./notebooks#notebooks-as-libraries)). `rt.evaluate(names)`
+does the same for a notebook you hold: it runs what those exports need and gives their values.
 
 ## Cell states
 

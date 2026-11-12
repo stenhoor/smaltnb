@@ -172,6 +172,8 @@ export async function main(argv: string[], io = { out: (s: string) => process.st
       }
       const report = await runNotebook(source, {
         ts, fileName: basename(path), database, frame: df?.table, params: a.params, actions: a.actions, reportRows: a.rows,
+        // Notebooks it imports (./lib.nb.ts), by their path relative to its folder.
+        readNotebook: async (p) => readFileSync(resolve(dir, p), 'utf8'),
         // What the notebook imports resolves from its own folder, then from smaltnb's.
         importModule: async (spec) => {
           if (spec.startsWith('.') || spec.startsWith('/')) return (await import(pathToFileURL(resolve(dir, spec)).href)) as Module;

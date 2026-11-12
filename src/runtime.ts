@@ -15,7 +15,7 @@ import { CHART_ROWS, Chart, chart, chartFromRows, checkColumns, type ChartOutput
 import { createParam, type ParamInfo, type ParamSpec } from './params.js';
 import { Relation, SqlQuery, registerCollected, statement, type CollectedTable } from './sql.js';
 import { importSpecifiers, moduleOf, parseNotebook, type Cell, type Diagnostic, type Notebook, type TypeScriptKit } from './format.js';
-import { buildGraph, propagate, type Graph } from './graph.js';
+import { buildGraph, exportClosure, propagate, type Graph } from './graph.js';
 
 /**
  * - `idle`: has not run.
@@ -74,6 +74,15 @@ export interface RuntimeOptions {
   frame?: (table: string) => object;
   /** Rows of a collected output sent with the cell's state (the rest are fetched with `rows`). Default 50. */
   previewRows?: number;
+  /**
+   * Reads a notebook another one imports (`import { clean } from './regional.nb.ts'`), by its path relative to this
+   * notebook's folder (`fileName`'s), e.g. `lib/regional.nb.ts`. Without it, notebook imports fail with a message.
+   */
+  readNotebook?: (path: string) => Promise<string>;
+  /** @internal The notebooks being imported, outermost first, to refuse a cycle. */
+  importing?: string[];
+  /** @internal Prefix of this notebook's collected tables (an imported notebook's differ from its importer's). */
+  tablePrefix?: string;
   /** Parameter values from outside, as text (a URL's query, a headless run's arguments). */
   params?: Record<string, string>;
   /** Called with the notebook's parameters whenever they change: declared, removed, or given a new value. */
@@ -104,8 +113,33 @@ interface Compiled {
 const AsyncFunction = (async () => {}).constructor as new (...args: string[]) => (...a: unknown[]) => Promise<unknown>;
 
 /** A collected table's name: per cell and name, readable in the database's TEMP tables. */
-function tableName(cell: string, name: string): string {
-  return `nb_${cell.replace(/[^A-Za-z0-9_]+/g, '_')}_${name}`;
+function tableName(prefix: string, cell: string, name: string): string {
+  return `${prefix}${cell.replace(/[^A-Za-z0-9_]+/g, '_')}_${name}`;
+}
+
+/** A path relative to a file's folder, normalized (`a/b.nb.ts` + `../c.nb.ts` is `c.nb.ts`). No Node: paths use `/`. */
+export function resolveNotebookPath(from: string, spec: string): string {
+  const parts = from.split('/').slice(0, -1);
+  for (const seg of spec.split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (parts.length && parts[parts.length - 1] !== '..') parts.pop();
+      else parts.push('..');
+    } else parts.push(seg);
+  }
+  return parts.join('/');
+}
+
+/** A short, stable name for a path, for an imported notebook's table prefix. */
+function shortHash(text: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
+}
+
+/** An import of another notebook: a relative path to a `.nb.ts` file. */
+export function isNotebookImport(spec: string): boolean {
+  return (spec.startsWith('./') || spec.startsWith('../')) && spec.endsWith('.nb.ts');
 }
 
 export class Runtime {
@@ -125,6 +159,8 @@ export class Runtime {
   #paramValues: Map<string, string>;
   #paramInfo = new Map<string, ParamInfo>();
   #paramsSent = '[]';
+  /** Notebooks this one imports, by path: each runs in its own runtime on the same database. */
+  #imports = new Map<string, Runtime>();
   #controlValues = new Map<string, Map<number, unknown>>();
   /** The controls the running cell has declared so far. */
   #declaring: { cell: string; controls: ControlInfo[] } | null = null;
@@ -450,11 +486,11 @@ export class Runtime {
       replaced.set(value, result);
       return result;
     };
-    for (const [name, value] of Object.entries(values)) out[name] = await one(value, tableName(id, name));
+    for (const [name, value] of Object.entries(values)) out[name] = await one(value, this.#table(id, name));
     let outputChart: ChartOutput | null = null;
     let collectedOutput: unknown = output;
-    if (output instanceof Chart) outputChart = await this.#chartRows(output, await one(output.data, tableName(id, '_output')));
-    else collectedOutput = await one(output, tableName(id, '_output'));
+    if (output instanceof Chart) outputChart = await this.#chartRows(output, await one(output.data, this.#table(id, '_output')));
+    else collectedOutput = await one(output, this.#table(id, '_output'));
     await this.#dropTables(id, kept);
     const info = sqlModule.collectedTable(collectedOutput);
     const outputTable = info && this.#db
@@ -489,6 +525,61 @@ export class Runtime {
     this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, outputChart: null, ms, ...(controls && { controls }) });
   }
 
+  #table(cell: string, name: string): string {
+    return tableName(this.#options.tablePrefix ?? 'nb_', cell, name);
+  }
+
+  /**
+   * Runs the cells of this notebook that these exports need, in order, unless they are already current (an imported
+   * notebook: DESIGN.md decision 14). They run as on an edit, so a write in them is held; actions never run.
+   */
+  async evaluate(names: string[]): Promise<Record<string, unknown>> {
+    const closure = exportClosure(this.#graph, names);
+    const name = this.#options.fileName ?? 'notebook.nb.ts';
+    if (closure.missing.length) {
+      const exported = this.#notebook.cells.flatMap((c) => c.exports);
+      throw new Error(`${name} doesn't export ${closure.missing.map((m) => `"${m}"`).join(', ')}${exported.length ? ` (it exports ${exported.map((e) => `"${e}"`).join(', ')})` : ' (it exports nothing)'}.`);
+    }
+    await this.#enqueue(async () => {
+      for (const id of closure.cells) {
+        if (this.#cell(id).kind === 'action') continue;
+        if (this.#states.get(id)!.status !== 'ok') await this.#execute(id, false, false);
+      }
+    });
+    for (const id of closure.cells) {
+      const st = this.#states.get(id)!;
+      if (st.status !== 'ok') throw new Error(`${name}: cell "${id}" ${st.status === 'error' ? 'failed' : `is ${st.status}`}${st.reason ? `: ${st.reason}` : ''}`);
+    }
+    return Object.fromEntries(names.map((n) => [n, this.value(n)]));
+  }
+
+  /** The values of another notebook's exports, from its own runtime on the same database. */
+  async #importNotebook(spec: string, names: string[] | '*'): Promise<Record<string, unknown>> {
+    const from = this.#options.fileName ?? 'notebook.nb.ts';
+    const path = resolveNotebookPath(from, spec);
+    const read = this.#options.readNotebook;
+    if (!read) throw new Error(`Can't import '${spec}': importing a notebook needs its folder, which this notebook isn't given (smaltnb run gives it; in the page it is planned, with git).`);
+    const chain = [...(this.#options.importing ?? [from]), path];
+    if ((this.#options.importing ?? [from]).includes(path)) throw new Error(`Notebooks import each other: ${chain.join(' → ')}.`);
+    let child = this.#imports.get(path);
+    if (!child) {
+      let source: string;
+      try {
+        source = await read(path);
+      } catch (err) {
+        throw new Error(`Can't import '${spec}': ${err instanceof Error ? err.message : String(err)}`);
+      }
+      child = new Runtime(source, {
+        ts: this.#ts, fileName: path, importModule: this.#options.importModule, readNotebook: read,
+        database: this.#options.database, frame: this.#options.frame, importing: chain, tablePrefix: `nb_${shortHash(path)}_`,
+      });
+      this.#imports.set(path, child);
+    }
+    const errors = child.diagnostics.filter((d) => d.severity === 'error' && !d.cell);
+    if (errors.length) throw new Error(`${path}: ${errors[0]!.message}`);
+    return child.evaluate(names === '*' ? child.notebook.cells.flatMap((c) => c.exports) : names);
+  }
+
   #compile(c: Cell): Compiled {
     const code = c.body ? this.#source.slice(c.body.start, c.body.end) : '';
     const key = JSON.stringify([code, c.reads, c.when?.text ?? null]);
@@ -500,7 +591,9 @@ export class Runtime {
     const start = c.body?.start ?? 0;
     const placed = '\n'.repeat(c.body ? c.body.line - 1 : 0) + ' '.repeat(start - (this.#source.lastIndexOf('\n', start - 1) + 1)) + code;
     const fileName = this.#options.fileName ?? 'notebook.nb.ts';
-    const fn = c.kind === 'setup' ? compileSetup(this.#ts, placed, this.#builtins, this.#options.importModule, fileName) : compileCell(this.#ts, placed, c.reads, values, fileName);
+    const fn = c.kind === 'setup'
+      ? compileSetup(this.#ts, placed, this.#builtins, this.#options.importModule, fileName, (spec, names) => this.#importNotebook(spec, names))
+      : compileCell(this.#ts, placed, c.reads, values, fileName);
     const guard = c.when ? compileGuard(this.#ts, c.when.text, c.when.reads) : null;
     const compiled = { key, fn, guard };
     this.#compiled.set(c.id, compiled);
@@ -550,17 +643,23 @@ function compileCell(ts: TypeScriptKit, code: string, reads: string[], values: s
 }
 
 /** The setup cell's imports, loaded with the module loader (`smaltnb` is built in). Type-only imports are dropped. */
-function compileSetup(ts: TypeScriptKit, code: string, builtins: Record<string, Record<string, unknown>>, load: ModuleLoader | undefined, fileName: string): CellFn {
+type NotebookLoader = (spec: string, names: string[] | '*') => Promise<Record<string, unknown>>;
+
+function compileSetup(ts: TypeScriptKit, code: string, builtins: Record<string, Record<string, unknown>>, load: ModuleLoader | undefined, fileName: string, loadNotebook: NotebookLoader): CellFn {
   const t = ts.parse(code, { fileName });
-  const imports: { spec: string; bind: (m: Record<string, unknown>, out: Record<string, unknown>) => void }[] = [];
+  const imports: { spec: string; names: string[] | '*'; bind: (m: Record<string, unknown>, out: Record<string, unknown>) => void }[] = [];
   for (const st of t.children(t.root)) {
     if (t.kind[st] !== ts.K.ImportDeclaration) continue;
     const names = importSpecifiers(t, ts, st).filter((n) => !n.typeOnly);
     const clause = t.children(st).find((c) => t.kind[c] === ts.K.ImportClause);
     if (clause && t.flags[clause]! & ts.F.TypeOnly) continue; // import type …: nothing to load
     const spec = moduleOf(t, ts, st);
+    if (isNotebookImport(spec) && names.some((n) => n.imported === 'default')) {
+      throw new Error(`'${spec}': a notebook's default export, its typed factory, is planned; import its exports by name.`);
+    }
     imports.push({
       spec,
+      names: names.some((n) => n.imported === '*') ? '*' : names.map((n) => n.imported),
       bind: (m, out) => {
         for (const n of names) {
           if (n.imported === 'default') out[n.local] = m.default;
@@ -576,7 +675,7 @@ function compileSetup(ts: TypeScriptKit, code: string, builtins: Record<string, 
   return async () => {
     const out: Record<string, unknown> = {};
     for (const imp of imports) {
-      const m = builtins[imp.spec] ?? (load ? await load(imp.spec) : undefined);
+      const m = builtins[imp.spec] ?? (isNotebookImport(imp.spec) ? await loadNotebook(imp.spec, imp.names) : load ? await load(imp.spec) : undefined);
       if (!m) throw new Error(`Can't load '${imp.spec}': no module loader was given.`);
       imp.bind(m, out);
     }

@@ -165,7 +165,26 @@ Charts come from `smaltkit/charts`, shared with the other smalt apps.
 its actions:
 
 ```ts
-import { clean } from './regional.nb.ts';
+import { cell, sql } from 'smaltnb';
+import { orders } from './orders.nb.ts';
+
+cell('byRegion', { lang: 'sql' });
+export const byRegion = sql`SELECT region, sum(revenue) AS revenue FROM ${orders} GROUP BY region`;
 ```
 
-*Planned.* What an import needs is computed today: [`exportClosure`](./format#the-graph).
+- **Only what's needed runs.** The imported notebook's cells that `orders` reads, directly or through other cells, run
+  in order ([`exportClosure`](./format#the-graph)). Its other cells and its actions don't, and a write in a cell that
+  does run is held, so an import never changes data.
+- **Results cross.** A collected result (a query, a frame) is imported as itself: SQL reads it with `${}`, smaltdf
+  chains on it. Each imported notebook keeps its tables apart from the importer's, so cells may share names.
+- **Paths are relative,** to the importing notebook's folder: `./orders.nb.ts`, `../lib/clean.nb.ts`. An imported
+  notebook can import others; notebooks that import each other are an error, naming the chain.
+- **Parameters** of an imported notebook take their defaults.
+- **Where it works:** [`smaltnb run`](./headless) reads imports from the notebook's folder, and so does the runtime given
+  `readNotebook`. In the page, notebooks have no folder yet: an import there says so (*planned*, with git).
+- `tsc` checks an import as written (with `allowImportingTsExtensions`): [examples/report.nb.ts](../../examples/report.nb.ts)
+  imports [examples/orders.nb.ts](../../examples/orders.nb.ts).
+
+*Planned:* the typed factory, `import nb from './regional.nb.ts'` with `nb.with({ mode: 'full' })` to set an import's
+parameters; `smaltnb build`, which writes `.js` and `.d.ts`; and imports from other repositories
+(`gh:owner/repo@commit/path.nb.ts`, with a lock file).

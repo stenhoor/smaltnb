@@ -63,8 +63,11 @@ npm run deps         # smaltdb, smaltql and smaltdf, pinned in packed.json until
 ```
 
 ```bash
-npm run typecheck    # src/, test/, and examples/*.nb.ts, which must typecheck as written
+npm run typecheck    # src/, test/, app/, and examples/*.nb.ts, which must typecheck as written
 ```
+
+TypeScript 7 checks the code (the `typescript7` dev dependency); TypeScript 6.0.3 (`typescript`, so `npx tsc`) still
+emits `dist/` and its `.d.ts` files.
 
 ```bash
 npm test             # builds, then node --test against the built package

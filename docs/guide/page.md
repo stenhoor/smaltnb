@@ -26,6 +26,8 @@ opens a demo notebook over a small `orders` table and runs it.
   - **Skipped:** a cell whose guard was false offers **Run once anyway**.
 - **Results** that are tables show in a grid with their row count. The page loads only the rows you scroll to, so a
   large result stays cheap. **Download CSV** saves every row.
+- **Charts** (`chart.bar(…)` and the others, as a cell's last expression) are drawn below the cell, and again when it
+  reruns. A chart of more than 5,000 rows is drawn from the first 5,000, and says so.
 - **Restart** stops a cell that never finishes, by replacing the kernel. The cells' results are lost and the database
   is kept.
 - **+ SQL**, **+ Text**, **+ Cell** and **+ Action** add a SQL cell, a text cell, a TypeScript cell or an action at the end. **Open…** loads a `.nb.ts` file, **Download** saves the notebook
@@ -36,7 +38,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-These are planned: notebooks in git, the graph view, charts, type pinning, and completion from
+These are planned: notebooks in git, the graph view, type pinning, and completion from
 a TypeScript language service. See [Status](./status).
 
 ## Run it locally

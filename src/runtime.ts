@@ -11,6 +11,7 @@ import { HeldWrite, NotebookDb, isFrame, type Rows, type WriteContext } from './
 import * as sqlModule from './sql.js';
 import { md } from './md.js';
 import { controlInfo, createUi, type ControlInfo, type ControlSpec } from './ui.js';
+import { CHART_ROWS, Chart, chart, chartFromRows, checkColumns, type ChartOutput } from './chart.js';
 import { createParam, type ParamInfo, type ParamSpec } from './params.js';
 import { Relation, SqlQuery, registerCollected, statement, type CollectedTable } from './sql.js';
 import { importSpecifiers, moduleOf, parseNotebook, type Cell, type Diagnostic, type Notebook, type TypeScriptKit } from './format.js';
@@ -47,6 +48,8 @@ export interface CellState {
   outputTable: (CollectedTable & { preview: Rows }) | null;
   /** The controls (ui.*) the cell declared when it last ran, with their values. */
   controls: ControlInfo[];
+  /** When the output is a chart: the rows it draws. */
+  outputChart: ChartOutput | null;
 }
 
 export type ModuleLoader = (specifier: string) => Promise<Record<string, unknown>>;
@@ -136,6 +139,7 @@ export class Runtime {
         ...sqlModule,
         md,
         ui: createUi((spec) => this.#resolveControl(spec)),
+        chart,
         cell,
         action,
         param: createParam((name, spec) => this.#resolveParam(name, spec)),
@@ -344,7 +348,7 @@ export class Runtime {
       if (!this.#states.has(c.id)) {
         this.#states.set(c.id, {
           id: c.id, status: 'idle', reason: null, values: {}, hasOutput: c.output !== null, output: undefined,
-          error: null, ms: null, runs: 0, outputTable: null, controls: [],
+          error: null, ms: null, runs: 0, outputTable: null, outputChart: null, controls: [],
         });
       }
       this.#states.get(c.id)!.hasOutput = c.output !== null;
@@ -410,11 +414,11 @@ export class Runtime {
       const r = await compiled.fn(inputs);
       this.#context = null;
       this.#declaring = null;
-      const collected = c.live || c.kind === 'setup' ? { values: r.values, output: r.output, outputTable: null } : await this.#collect(id, r.values, r.output);
+      const collected = c.live || c.kind === 'setup' ? { values: r.values, output: r.output, outputTable: null, outputChart: null } : await this.#collect(id, r.values, r.output);
       const s = this.#states.get(id)!;
       this.#set(id, {
         status: 'ok', reason: null, error: null, values: collected.values, output: collected.output,
-        outputTable: collected.outputTable, ms: performance.now() - t0, runs: s.runs + 1, controls: declaring.controls,
+        outputTable: collected.outputTable, outputChart: collected.outputChart, ms: performance.now() - t0, runs: s.runs + 1, controls: declaring.controls,
       });
     } catch (err) {
       this.#context = null;
@@ -447,13 +451,29 @@ export class Runtime {
       return result;
     };
     for (const [name, value] of Object.entries(values)) out[name] = await one(value, tableName(id, name));
-    const collectedOutput = await one(output, tableName(id, '_output'));
+    let outputChart: ChartOutput | null = null;
+    let collectedOutput: unknown = output;
+    if (output instanceof Chart) outputChart = await this.#chartRows(output, await one(output.data, tableName(id, '_output')));
+    else collectedOutput = await one(output, tableName(id, '_output'));
     await this.#dropTables(id, kept);
     const info = sqlModule.collectedTable(collectedOutput);
     const outputTable = info && this.#db
       ? { ...info, preview: await this.#db.rows(info.table, 0, this.#options.previewRows ?? 50) }
       : null;
-    return { values: out, output: collectedOutput, outputTable };
+    return { values: out, output: collectedOutput, outputTable, outputChart };
+  }
+
+  /** A chart's rows: from a collected result's table, or from an array of row objects. */
+  async #chartRows(c: Chart, data: unknown): Promise<ChartOutput> {
+    const info = sqlModule.collectedTable(data);
+    if (info && this.#db) {
+      const columns = c.columns();
+      checkColumns(c, columns, info.columns);
+      const r = await this.#db.columns(info.table, columns, CHART_ROWS);
+      return { kind: c.kind, options: { ...c.options }, columns, rows: r.rows, rowCount: info.rowCount };
+    }
+    if (Array.isArray(data) && data.every((r) => r !== null && typeof r === 'object')) return chartFromRows(c, data as Record<string, unknown>[]);
+    throw new Error(`chart.${c.kind}: its data must be a query, a frame, another cell's result or an array of rows.`);
   }
 
   /** Drops the cell's collected tables that it no longer has. */
@@ -466,7 +486,7 @@ export class Runtime {
 
   #fail(id: string, err: unknown, ms: number | null = null, controls?: ControlInfo[]) {
     const e = err instanceof Error ? err : new Error(String(err));
-    this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, ms, ...(controls && { controls }) });
+    this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, outputChart: null, ms, ...(controls && { controls }) });
   }
 
   #compile(c: Cell): Compiled {

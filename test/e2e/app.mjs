@@ -56,6 +56,15 @@ try {
     assert.deepEqual((await gridRows('byRegion')).map((r) => r[0]), ['east', 'west', 'south', 'north']);
   });
 
+  await step('a chart cell draws its result with smaltkit/charts: a bar per region, labelled', async () => {
+    await until('revenueChart', 'ok');
+    await page.waitForSelector('[data-cell="revenueChart"] .chart svg [data-row]');
+    const bars = await page.$$eval('[data-cell="revenueChart"] .chart svg [data-row]', (els) => new Set(els.map((e) => e.getAttribute('data-row'))).size);
+    assert.equal(bars, 4);
+    const text = await page.textContent('[data-cell="revenueChart"] .chart');
+    for (const region of ['north', 'south', 'east', 'west']) assert.ok(text.includes(region), region);
+  });
+
   await step('controls (ui.*) show under their cell; a change reruns it with the new value', async () => {
     await until('bigOrders', 'ok');
     const count = () => page.evaluate(() => document.querySelector('[data-cell="bigOrders"] .table-foot span')?.textContent ?? '');

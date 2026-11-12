@@ -16,6 +16,7 @@ import { createRuntime, type CellState, type ModuleLoader, type Runtime } from '
 import type { Rows } from './database.js';
 import type { CollectedTable } from './sql.js';
 import { Markdown } from './md.js';
+import type { ChartOutput } from './chart.js';
 import type { ParamInfo } from './params.js';
 import type { ControlInfo } from './ui.js';
 
@@ -33,7 +34,9 @@ export type Display =
   /** A collected result: its table and first rows; fetch more with `rows`. */
   | { kind: 'table'; table: CollectedTable; preview: Rows }
   /** Markdown text (md`…`), for the page to render. */
-  | { kind: 'markdown'; text: string };
+  | { kind: 'markdown'; text: string }
+  /** A chart (chart.bar(…) and the others): its kind, options, and the rows it draws, for the page to draw. */
+  | { kind: 'chart'; chart: ChartOutput };
 
 /** A cell's state as the page sees it: its values stay in the kernel. */
 export interface CellView {
@@ -156,7 +159,8 @@ export function view(state: CellState): CellView {
   return {
     id: state.id, status: state.status, reason: state.reason, error: state.error, ms: state.ms, runs: state.runs,
     controls: state.controls.map((c) => ({ ...c, ...(c.options && { options: [...c.options] }) })),
-    output: state.outputTable ? { kind: 'table', table: tableInfo(state.outputTable), preview: state.outputTable.preview }
+    output: state.outputChart && state.runs > 0 ? { kind: 'chart', chart: state.outputChart }
+      : state.outputTable ? { kind: 'table', table: tableInfo(state.outputTable), preview: state.outputTable.preview }
       : state.hasOutput && state.runs > 0 && state.output instanceof Markdown ? { kind: 'markdown', text: state.output.text }
       : state.hasOutput && state.runs > 0 ? toDisplay(state.output) : { kind: 'none' },
   };

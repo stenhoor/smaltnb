@@ -208,7 +208,7 @@ test('examples/shop.nb.ts runs: smaltdf, then SQL over the collected frame, then
   const { rt, db } = runtime(source);
   db.exec('CREATE TABLE region_totals(region TEXT, revenue REAL)');
   await rt.runAll();
-  assert.deepEqual(status(rt), { setup: 'ok', intro: 'ok', params: 'ok', orders: 'ok', byRegion: 'ok', bigOrders: 'ok', 'save totals': 'idle' });
+  assert.deepEqual(status(rt), { setup: 'ok', intro: 'ok', params: 'ok', orders: 'ok', byRegion: 'ok', revenueChart: 'ok', bigOrders: 'ok', 'save totals': 'idle' });
   assert.deepEqual(rt.state('byRegion')!.outputTable!.preview.rows, [['north', 79.5], ['south', 7.25]]);
   assert.equal(rt.state('bigOrders')!.outputTable!.rowCount, 0, 'no order reaches the default 1000');
   await rt.setControl('bigOrders', 1, 0);
@@ -216,9 +216,34 @@ test('examples/shop.nb.ts runs: smaltdf, then SQL over the collected frame, then
   await rt.setControl('bigOrders', 0, 'north');
   assert.deepEqual(rt.state('bigOrders')!.outputTable!.preview.rows.map((r) => r[0]), [1, 4]);
   assert.deepEqual(rt.state('bigOrders')!.controls.map((c) => c.value), ['north', 0]);
+  assert.deepEqual(rt.state('revenueChart')!.outputChart!.rows, [['north', 79.5], ['south', 7.25]]);
   await rt.run(['save totals']);
   assert.equal(rt.state('save totals')!.status, 'ok');
   assert.deepEqual(db.query('SELECT * FROM region_totals').rows, [['north', 79.5], ['south', 7.25]]);
+});
+
+test('a chart reads its columns from a collected result: a query in its own cell, or another cell\'s; a missing column fails', async () => {
+  const { rt } = runtime(header.replace('{ cell,', '{ chart, cell,') + `
+cell('byRegion');
+export const byRegion = sql\`SELECT region, sum(qty) AS qty, count(*) AS n FROM orders GROUP BY region ORDER BY region\`;
+chart.column(byRegion, { x: 'region', y: ['qty', 'n'] });
+cell('again');
+chart.pie(byRegion, { x: 'region', y: 'n' });
+cell('wrong');
+chart.line(byRegion, { x: 'region', y: 'revenue' as never });
+`);
+  await rt.runAll();
+  const own = rt.state('byRegion')!;
+  assert.equal(own.status, 'ok');
+  assert.deepEqual(own.outputChart, {
+    kind: 'column', options: { x: 'region', y: ['qty', 'n'] }, columns: ['region', 'qty', 'n'],
+    rows: [['east', 0, 1], ['north', 5, 2], ['south', 1, 1]], rowCount: 3,
+  });
+  assert.ok(collectedTable(rt.value('byRegion')), 'the query is still collected as the cell\'s result');
+  assert.deepEqual(rt.state('again')!.outputChart!.rows, [['east', 1], ['north', 2], ['south', 1]]);
+  const wrong = rt.state('wrong')!;
+  assert.equal(wrong.status, 'error');
+  assert.match(wrong.error!.message, /chart\.line: no column "revenue" in the data \(it has "region", "qty", "n"\)/);
 });
 
 test('with the worker client, whose array rows come back as the array itself, queries and rows still work', async () => {

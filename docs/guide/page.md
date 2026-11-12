@@ -26,6 +26,9 @@ opens a demo notebook over a small `orders` table and runs it.
   - **Skipped:** a cell whose guard was false offers **Run once anyway**.
 - **Results** that are tables show in a grid with their row count. The page loads only the rows you scroll to, so a
   large result stays cheap. **Download CSV** saves every row.
+- **Row types:** after a SQL cell runs, **Pin types** writes its result's row type into the notebook
+  (`sql<{ … }>`); a later run that no longer matches shows **types out of date** and **Update types**. See
+  [Row types](./notebooks#row-types).
 - **Charts** (`chart.bar(…)` and the others, as a cell's last expression) are drawn below the cell, and again when it
   reruns. A chart of more than 5,000 rows is drawn from the first 5,000, and says so.
 - **Restart** stops a cell that never finishes, by replacing the kernel. The cells' results are lost and the database

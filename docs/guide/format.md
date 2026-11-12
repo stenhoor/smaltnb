@@ -43,7 +43,8 @@ await exec`DELETE FROM region_totals`;
 await exec`INSERT INTO region_totals SELECT region, revenue FROM ${byRegion}`;
 ```
 
-- The query's name is the cell's name; `export` and a row type (`sql<Row>`) are kept as written.
+- The query's name is the cell's name; `export` and a row type (`sql<Row>`) are kept as written. The page pins the row
+  type from a run ([Row types](./notebooks#row-types)).
 - `${name}` reads another cell's result, as in any `` sql`…` ``.
 - The SQL is the template's text as written: a backslash is SQL's; only a backtick (and a `${` that isn't a
   reference) is escaped, as `` \` `` and `\${`.

@@ -44,6 +44,7 @@ export const clean = raw.filter(col('qty').gt(0));
 | `smaltnb/kernel` | `serveKernel(self, { ts, importModule })`: the runtime in a Web Worker, over messages. |
 | `smaltnb/client` | `KernelClient`: the page's side. `open`, `update`, `run`, `runAll`, and `restart()` to stop a run that never finishes. |
 | `smaltnb/report` | `runNotebook(source, options)`: a whole run, as a scheduled run does, and its report as text, JSON or Markdown. |
+| `smaltnb/rowtype` | `rowTypeOf(columns, types)` and `checkRowType(ts, pinned, columns, types)`: a SQL result's row type as TypeScript, and whether a pinned one still matches. |
 | `smaltnb/library` | `notebookFactory`: a built notebook's default export. `.with(params).get(...names)` runs what those exports need, with typed parameters. |
 | `smaltnb build` | Writes notebooks as libraries: `.nb.js` (the factory) and `.nb.d.ts` (its types, from the source). See [Notebooks as libraries](https://stenhoor.github.io/smaltnb/guide/notebooks#notebooks-as-libraries). |
 | `smaltnb run` | The command: runs a notebook in Node with parameters, prints each cell's status, writes reports, and exits 1 when a cell failed. Also a GitHub Action (`uses: stenhoor/smaltnb@main`). See [Headless runs](https://stenhoor.github.io/smaltnb/guide/headless). |

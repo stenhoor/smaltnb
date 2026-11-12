@@ -139,6 +139,20 @@ reads a SQL result as a frame, and SQL reads a frame's result, because both buil
 are collected once per run, in memory by default, and the page only ever holds the rows on screen. See
 [the database](./runtime#the-database).
 
+### Row types
+
+A query's rows have a TypeScript type, `` sql<{ region: string; revenue: number }>`…` ``, so what reads them is checked:
+a chart's column names, smaltdf's, your own code's. You don't write it by hand. After a SQL cell runs, **Pin types**
+writes the type its columns give into the notebook (the SQL view stays as it is; **TS** shows the type). When a later
+run no longer matches what is pinned (a column added, renamed, or of another type), the cell says **types out of date**,
+with what changed, and **Update types** pins the new one.
+
+- Columns map to `number` (integers and reals), `string`, `boolean`, `Uint8Array`, or `unknown` where the engine
+  doesn't know. Whether a column can be NULL isn't reported yet: add `| null` by hand where it can; the check keeps it.
+- A named type (`sql<Order>`) is yours: it isn't checked against the run.
+- It's offered on plain SQL cells, which the page writes back. *Planned:* the same for queries in TypeScript cells and
+  for smaltdf frames.
+
 ## Charts
 
 A `chart.*` call as a cell's last expression shows a chart of a result as the cell's output:

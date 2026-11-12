@@ -133,7 +133,7 @@ test('a CellView has no values: they stay in the kernel', async () => {
     await k.open(example);
     await k.runAll();
     const v: CellView = k.state('raw')!;
-    assert.deepEqual(Object.keys(v).sort(), ['controls', 'error', 'id', 'ms', 'output', 'reason', 'runs', 'status']);
+    assert.deepEqual(Object.keys(v).sort(), ['controls', 'error', 'id', 'ms', 'output', 'reason', 'rowType', 'runs', 'status']);
   } finally {
     k.close();
   }

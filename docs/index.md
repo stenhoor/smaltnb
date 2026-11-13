@@ -35,7 +35,7 @@ features:
     link: /guide/notebooks#notebooks-as-libraries
     linkText: Libraries
   - title: Versioned in git
-    details: Notebooks live in a git repository, in the browser, synced with GitHub. Secrets stay secret, never in a notebook or a repo.
+    details: Notebooks are plain files in your own git repository, with changes shown cell by cell. smalt holds no credentials; you commit and sync with your own tools.
     link: /DESIGN
     linkText: The design
 ---

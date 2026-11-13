@@ -44,7 +44,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-These are planned: notebooks in git, and completion from a TypeScript language service. See [Status](./status).
+These are planned: a local repository folder for notebooks in git (per-cell changes, history and conflicts; you commit with your own tools), and completion from a TypeScript language service. See [Status](./status).
 
 ## Run it locally
 

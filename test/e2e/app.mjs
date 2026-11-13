@@ -507,6 +507,31 @@ try {
     await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
   });
 
+  await step('a notebook from a folder imports another from the same folder', async () => {
+    // A plain folder (no git): the import example, report.nb.ts importing orders.nb.ts, in a subfolder.
+    await page.evaluate(async ([orders, report]) => {
+      const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('imports', { create: true });
+      const nb = await root.getDirectoryHandle('nb', { create: true });
+      for (const [name, text] of [['orders.nb.ts', orders], ['report.nb.ts', report]]) {
+        const w = await (await nb.getFileHandle(name, { create: true })).createWritable();
+        await w.write(text);
+        await w.close();
+      }
+      window.showDirectoryPicker = async () => root;
+    }, [readFileSync('examples/orders.nb.ts', 'utf8'), readFileSync('examples/report.nb.ts', 'utf8')]);
+    await page.click('#folder');
+    await page.waitForFunction(() => document.querySelector('#folder')?.textContent === 'imports/');
+    assert.deepEqual(await page.$$eval('#folder-file option', (os) => os.map((o) => o.value).filter(Boolean)), ['nb/orders.nb.ts', 'nb/report.nb.ts']);
+    await page.selectOption('#folder-file', 'nb/report.nb.ts');
+    await until('byRegion', 'ok');
+    assert.equal(await status('setup'), 'ok');
+    assert.equal((await gridRows('byRegion')).length, 4, 'four regions, from orders.nb.ts\'s cleaned orders');
+    await page.waitForFunction(() => document.querySelector('#git-status')?.textContent === 'not a git repository');
+    await page.click('#demo');
+    await until('byRegion', 'ok');
+    await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
+  });
+
   await step('restart stops a cell that never finishes; the cells can run again', async () => {
     const before = await page.evaluate(() => document.querySelectorAll('.cell').length);
     await page.click('#add-cell');

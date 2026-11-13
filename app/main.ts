@@ -73,7 +73,18 @@ let pending: ReturnType<typeof setTimeout> | null = null;
 
 const kernel = new KernelClient(
   () => new Worker(new URL('./kernel-worker.js', import.meta.url), { type: 'module', name: 'kernel' }),
-  { onState: (s) => showState(s), onNotebook: (nb) => onNotebook(nb), onParams: (p) => showParams(p) },
+  {
+    onState: (s) => showState(s), onNotebook: (nb) => onNotebook(nb), onParams: (p) => showParams(p),
+    // A notebook it imports (./orders.nb.ts), from the folder the open notebook came from.
+    readNotebook: async (path) => {
+      if (!folder || !folderPath) throw new Error('open this notebook from a folder (Folder…) to import other notebooks');
+      try {
+        return await folder.read(path);
+      } catch {
+        throw new Error(`there is no ${path} in ${folder.name}/`);
+      }
+    },
+  },
 );
 
 /** Splits the source at each cell's first line: the text before the first cell is setup. */
@@ -685,7 +696,7 @@ async function openFromFolder(path: string) {
   await rememberFolder(folder.root, path);
   const name = path.split('/').pop()!.replace(/\.nb\.ts$/, '');
   if (hasConflictMarkers(text)) return showResolver(text, name);
-  await load(text, name);
+  await load(text, name, {}, path);
   await readHead();
 }
 
@@ -738,7 +749,7 @@ async function showResolver(text: string, name: string) {
     const resolved = resolveCells(merged, choices);
     source = resolved;
     if (folder && folderPath) await folder.write(folderPath, resolved).catch((err: Error) => toast(`Couldn't save ${folderPath}: ${err.message}`, 'error'));
-    await load(resolved, name);
+    await load(resolved, name, {}, folderPath ?? undefined);
     await readHead();
     toast('Saved without conflict markers. Mark it resolved (git add) and commit, in your own tools.');
   }
@@ -1058,7 +1069,8 @@ function save() {
   }
 }
 
-async function load(src: string, name: string, params: Record<string, string> = {}) {
+/** Opens a notebook. `fileName` is its path in a folder, so what it imports is found beside it. */
+async function load(src: string, name: string, params: Record<string, string> = {}, fileName = `${name}.nb.ts`) {
   source = src.endsWith('\n') ? src : src + '\n';
   nameEl.value = name;
   fitName();
@@ -1068,7 +1080,7 @@ async function load(src: string, name: string, params: Record<string, string> = 
   sourceButton.textContent = 'Source';
   showTs.clear();
   save();
-  await kernel.open(source, `${name}.nb.ts`, params);
+  await kernel.open(source, fileName, params);
   await kernel.runAll().catch((err: Error) => toast(err.message, 'error'));
 }
 

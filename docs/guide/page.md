@@ -30,6 +30,11 @@ opens a demo notebook over a small `orders` table and runs it.
   - the page only reads `.git`. Commit and sync with your own git tools; switching back to the page picks up a new
     commit. Nothing here holds a credential ([ADR 0032](https://github.com/stenhoor/smalt-brand/blob/main/docs/adr/0032-git-through-the-local-repository.md)).
 
+  A notebook opened from a folder can import others in it (`import { orders } from './orders.nb.ts'`), as
+  [`smaltnb run`](./headless) does: only the cells the imported names need run ([Notebooks as
+  libraries](./notebooks#notebooks-as-libraries)). A notebook not opened from a folder (the demo, **Open…**) has
+  nothing to import from, and an import there says so.
+
   The folder is remembered; the browser may ask again for access, with one click. Firefox and Safari can't open
   folders: there, **Open…** and **Download** work with files.
 - **Graph** shows how the cells depend on each other: a box per cell, left to right by depth, in its status colour,
@@ -61,7 +66,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-These are planned: notebook imports in the page, and completion from a TypeScript language service. See [Status](./status).
+Completion from a TypeScript language service is planned. See [Status](./status).
 
 ## Run it locally
 

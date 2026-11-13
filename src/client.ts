@@ -20,6 +20,11 @@ export interface KernelClientOptions {
   onNotebook?: (notebook: NotebookView) => void;
   /** Called with the notebook's parameters whenever they change. */
   onParams?: (params: ParamInfo[]) => void;
+  /**
+   * Reads a notebook the open one imports (`./orders.nb.ts`), by its path relative to the open notebook's folder. Without
+   * it, a notebook import fails in the kernel with a message.
+   */
+  readNotebook?: (path: string) => Promise<string>;
 }
 
 type Body<T> = T extends { id: number } ? Omit<T, 'id'> : never;
@@ -69,7 +74,7 @@ export class KernelClient {
     this.#controlValues = {};
     this.#states.clear();
     this.#params = [];
-    return this.#send({ type: 'open', source, params, ...(fileName !== undefined && { fileName }) });
+    return this.#send({ type: 'open', source, params, ...(fileName !== undefined && { fileName }), ...(this.#options.readNotebook && { readsNotebooks: true }) });
   }
 
   /** Sets parameter values, as text; null goes back to the default. The cells that read them react. */
@@ -129,7 +134,7 @@ export class KernelClient {
       this.#setState({ ...s, status: 'idle', reason: 'the kernel was restarted', output: { kind: 'none' }, error: null });
     }
     if (this.#source !== null) {
-      await this.#send({ type: 'open', source: this.#source, params: this.#paramValues, controls: this.#controlValues, ...(this.#fileName !== undefined && { fileName: this.#fileName }) });
+      await this.#send({ type: 'open', source: this.#source, params: this.#paramValues, controls: this.#controlValues, ...(this.#fileName !== undefined && { fileName: this.#fileName }), ...(this.#options.readNotebook && { readsNotebooks: true }) });
       // The new kernel reports its cells as idle with no reason; keep the reason until they run again.
       for (const s of this.#states.values()) if (s.status === 'idle') this.#setState({ ...s, reason: 'the kernel was restarted' });
     }
@@ -189,6 +194,14 @@ export class KernelClient {
         this.#pending.delete(reply.id);
         if (reply.type === 'done') p.resolve(reply.result);
         else p.reject(new Error(reply.message));
+        return;
+      }
+      case 'readNotebook': {
+        const worker = this.#worker;
+        const answer = (body: { text?: string; error?: string }) => worker.postMessage({ type: 'notebookText', id: reply.id, ...body });
+        const read = this.#options.readNotebook;
+        if (!read) answer({ error: 'this page reads no notebook files' });
+        else read(reply.path).then((text) => answer({ text }), (err: unknown) => answer({ error: err instanceof Error ? err.message : String(err) }));
         return;
       }
       case 'ready':

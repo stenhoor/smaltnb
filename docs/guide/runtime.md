@@ -121,6 +121,9 @@ await kernel.restart();   // stop a run that never finishes
   while a long cell is running.
 - **Values stay in the kernel.** The page gets each cell's state and its output: the value itself when it can be cloned
   across, otherwise a description such as `[function load]`.
+- **Imports of other notebooks** reach the page: give `KernelClient` a `readNotebook(path)` and the kernel asks the
+  page for each file it imports (the path relative to the name given to `open`). Without one, an import says the
+  notebook has no folder.
 - **TypeScript** is read and stripped in the worker by smaltty, bundled into it from `smaltkit/typescript`: 35 KB
   gzipped, with nothing to fetch, where the TypeScript compiler it replaces was 8.7 MB loaded at run time.
 

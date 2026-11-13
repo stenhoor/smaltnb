@@ -146,3 +146,45 @@ async function waitFor(check: () => boolean, ms = 5000) {
     await new Promise((r) => setImmediate(r));
   }
 }
+
+test('a notebook import in the kernel asks the page for the file: readNotebook, answered at once even mid-run', async () => {
+  const files: Record<string, string> = {
+    'nb/lib.nb.ts': "import { cell } from 'smaltnb';\ncell('base'); export const base = 21;\n",
+  };
+  const asked: string[] = [];
+  let release!: () => void;
+  const slow = new Promise<void>((r) => (release = r));
+  const k = new KernelClient(inProcess, {
+    readNotebook: async (path) => {
+      asked.push(path);
+      await slow; // the page takes its time: the kernel must not queue the answer behind the run waiting for it
+      if (!(path in files)) throw new Error(`no ${path}`);
+      return files[path]!;
+    },
+  });
+  try {
+    await k.open("import { cell } from 'smaltnb';\nimport { base } from './lib.nb.ts';\ncell('twice'); export const twice = base * 2;\ntwice;\n", 'nb/main.nb.ts');
+    const run = k.runAll();
+    setTimeout(release, 20);
+    await run;
+    assert.deepEqual(asked, ['nb/lib.nb.ts'], 'the path is relative to the open notebook\'s folder');
+    assert.deepEqual(k.state('twice')!.output, { kind: 'value', value: 42 });
+
+    await k.update("import { cell } from 'smaltnb';\nimport { x } from './gone.nb.ts';\ncell('y'); export const y = x;\n");
+    await k.runAll();
+    assert.match(k.state('setup')!.error!.message, /Can't import '\.\/gone\.nb\.ts': no nb\/gone\.nb\.ts/);
+  } finally {
+    k.close();
+  }
+});
+
+test('without readNotebook, a notebook import says how to give it its folder', async () => {
+  const k = new KernelClient(inProcess);
+  try {
+    await k.open("import { cell } from 'smaltnb';\nimport { base } from './lib.nb.ts';\ncell('a'); export const a = base;\n", 'main.nb.ts');
+    await k.runAll();
+    assert.match(k.state('setup')!.error!.message, /importing a notebook needs its folder.*open it from a folder in the page, or run it with smaltnb run/);
+  } finally {
+    k.close();
+  }
+});

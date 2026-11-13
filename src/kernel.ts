@@ -64,7 +64,9 @@ export interface NotebookView {
 
 /** Page to kernel. Each request has an id; the kernel answers with `done` or `failed` for that id. */
 export type Request =
-  | { type: 'open'; id: number; source: string; fileName?: string; params?: Record<string, string>; controls?: Record<string, Record<number, unknown>> }
+  | { type: 'open'; id: number; source: string; fileName?: string; params?: Record<string, string>; controls?: Record<string, Record<number, unknown>>; readsNotebooks?: boolean }
+  /** The page's answer to `readNotebook`: the file's text, or why it can't be read. Answered at once, never queued. */
+  | { type: 'notebookText'; id: number; text?: string; error?: string }
   | { type: 'setControl'; id: number; cell: string; index: number; value: unknown }
   | { type: 'setParams'; id: number; values: Record<string, string | null> }
   | { type: 'update'; id: number; source: string }
@@ -81,7 +83,9 @@ export type Reply =
   | { type: 'params'; params: ParamInfo[] }
   | { type: 'state'; state: CellView }
   | { type: 'done'; id: number; result?: unknown }
-  | { type: 'failed'; id: number; message: string };
+  | { type: 'failed'; id: number; message: string }
+  /** The kernel asks the page for a notebook another one imports (by path relative to the open notebook's folder). */
+  | { type: 'readNotebook'; id: number; path: string };
 
 export interface KernelOptions {
   /** smaltty, the TypeScript kit (`smaltty` from smaltkit/typescript), or a promise of it. */
@@ -103,6 +107,14 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
   let runtime: Runtime | null = null;
   let fileName: string | undefined;
   let queue: Promise<unknown> = Promise.resolve();
+  // Notebooks the page reads for an import: asked with readNotebook, answered with notebookText.
+  let nextRead = 1;
+  const reads = new Map<number, { resolve: (text: string) => void; reject: (err: Error) => void }>();
+  const readFromPage = (path: string) => new Promise<string>((resolve, reject) => {
+    const id = nextRead++;
+    reads.set(id, { resolve, reject });
+    post({ type: 'readNotebook', id, path });
+  });
 
   const describe = (ts: TypeScriptKit, source: string, name = fileName): NotebookView => {
     const graph = buildGraph(parseNotebook(source, ts, { fileName: name }));
@@ -121,6 +133,7 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
           onChange: (state) => post({ type: 'state', state: view(state) }),
           params: req.params,
           controls: req.controls,
+          ...(req.readsNotebooks && { readNotebook: readFromPage }),
           onParams: (params) => post({ type: 'params', params }),
         });
         for (const s of runtime.states()) post({ type: 'state', state: view(s) });
@@ -151,6 +164,14 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
   endpoint.addEventListener('message', (event) => {
     const req = event.data as Request;
     if (!req || typeof req !== 'object' || typeof req.id !== 'number') return;
+    if (req.type === 'notebookText') {
+      // An answer to readNotebook: a run may be waiting on it, so it never waits in the queue.
+      const r = reads.get(req.id);
+      reads.delete(req.id);
+      if (req.text !== undefined) r?.resolve(req.text);
+      else r?.reject(new Error(req.error ?? 'the page could not read it'));
+      return;
+    }
     // Notebook changes reach the page in order; runs queue inside the runtime.
     const work = req.type === 'open' || req.type === 'update' ? (queue = queue.then(() => handle(req))) : queue.then(() => handle(req));
     work.then(

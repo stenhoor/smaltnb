@@ -49,6 +49,10 @@
       "types": "./dist/rowtype.d.ts",
       "default": "./dist/rowtype.js"
     },
+    "./history": {
+      "types": "./dist/history.d.ts",
+      "default": "./dist/history.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "default": "./dist/runtime.js"

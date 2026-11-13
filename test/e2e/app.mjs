@@ -342,6 +342,73 @@ try {
     await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
   });
 
+  await step('a cell\'s history: the commits that changed it, each one\'s diff, blame, and Use this version', async () => {
+    // Three commits: the notebook; params changed; only the intro changed (params' history skips it).
+    const repo = mkdtempSync(join(tmpdir(), 'smaltnb-hist-'));
+    const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.org', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.org', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' };
+    const git = (...args) => execFileSync('git', args, { cwd: repo, env });
+    const shop = readFileSync('examples/shop.nb.ts', 'utf8');
+    git('init', '-q', '-b', 'main');
+    writeFileSync(join(repo, 'shop.nb.ts'), shop);
+    git('add', '-A');
+    git('commit', '-q', '-m', 'the shop notebook');
+    writeFileSync(join(repo, 'shop.nb.ts'), shop.replace('param.number(1)', 'param.number(3)'));
+    git('commit', '-qam', 'minQty 3 by default');
+    writeFileSync(join(repo, 'shop.nb.ts'), shop.replace('param.number(1)', 'param.number(3)').replace('# Shop analysis', '# Shop'));
+    git('commit', '-qam', 'shorter title');
+    const second = execFileSync('git', ['rev-parse', '--short=7', 'HEAD~1'], { cwd: repo, encoding: 'utf8' }).trim();
+    const files = [];
+    const walk = (d) => { for (const n of readdirSync(d)) { const f = join(d, n); if (statSync(f).isDirectory()) walk(f); else files.push(relative(repo, f)); } };
+    walk(repo);
+    await page.unroute('**/__fixture/**');
+    await page.route('**/__fixture/**', (r) => r.fulfill({ body: readFileSync(join(repo, decodeURIComponent(new URL(r.request().url()).pathname.slice('/__fixture/'.length)))) }));
+    await page.evaluate(async (files) => {
+      const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('hist-repo', { create: true });
+      for (const f of files) {
+        const parts = f.split('/');
+        let d = root;
+        for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p, { create: true });
+        const w = await (await d.getFileHandle(parts.at(-1), { create: true })).createWritable();
+        await w.write(await (await fetch(`/__fixture/${encodeURIComponent(f).replace(/%2F/g, '/')}`)).arrayBuffer());
+        await w.close();
+      }
+      window.showDirectoryPicker = async () => root;
+    }, files);
+    await page.click('#folder');
+    await page.waitForFunction(() => [...document.querySelectorAll('#folder-file option')].some((o) => o.value === 'shop.nb.ts'));
+    await page.selectOption('#folder-file', 'shop.nb.ts');
+    await until('byRegion', 'ok');
+    await page.waitForFunction(() => document.querySelector('#git-status')?.textContent === 'on main · no changes since the last commit', null, { timeout: 30000 });
+
+    await page.click('.cell[data-cell="params"] .history-toggle');
+    await page.waitForSelector('.cell[data-cell="params"] .history-row');
+    const rows = await page.$$eval('.cell[data-cell="params"] .history-row', (els) => els.map((e) => e.textContent));
+    assert.equal(rows.length, 2, rows.join('\n'));
+    assert.match(rows[0], new RegExp(`^${second} · \\d{4}-\\d{2}-\\d{2} · Ada · minQty 3 by default$`));
+    assert.match(rows[1], /· the shop notebook \(added the cell\)$/);
+    await page.click('.cell[data-cell="params"] .history-row >> nth=0');
+    const diff = await page.$$eval('.cell[data-cell="params"] .history-detail .diff span', (els) => els.map((e) => `${e.className}:${e.textContent.trim()}`));
+    assert.ok(diff.includes('remove:- export const params = param({ minQty: param.number(1) });'), diff.join('\n'));
+    assert.ok(diff.includes('add:+ export const params = param({ minQty: param.number(3) });'), diff.join('\n'));
+
+    await page.click('.cell[data-cell="params"] .blame-toggle');
+    await page.waitForSelector('.cell[data-cell="params"] .blame');
+    const blame = await page.textContent('.cell[data-cell="params"] .blame');
+    assert.match(blame, new RegExp(`${second} Ada\\s+ export const params = param\\(\\{ minQty: param\\.number\\(3\\) \\}\\);`), blame);
+    assert.doesNotMatch(blame.split('\n')[0], new RegExp(second), 'the cell() line is older');
+
+    // Use this version: the first commit's params come back, in the editor and the folder's file.
+    await page.click('.cell[data-cell="params"] .history-row >> nth=1');
+    await page.click('.cell[data-cell="params"] .history-detail >> nth=1 >> button:has-text("Use this version")');
+    await page.waitForFunction(() => document.querySelector('.cell[data-cell="params"] textarea')?.value.includes('param.number(1)'), null, { timeout: 30000 });
+    await page.waitForFunction(() => document.querySelector('.cell[data-cell="params"] .change-chip')?.textContent === 'changed', null, { timeout: 30000 });
+    const saved = await page.evaluate(async () => (await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('hist-repo')).getFileHandle('shop.nb.ts')).getFile()).text());
+    assert.match(saved, /param\.number\(1\)/);
+    await page.click('#demo');
+    await until('byRegion', 'ok');
+    await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
+  });
+
   await step('restart stops a cell that never finishes; the cells can run again', async () => {
     const before = await page.evaluate(() => document.querySelectorAll('.cell').length);
     await page.click('#add-cell');

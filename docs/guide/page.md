@@ -20,6 +20,9 @@ opens a demo notebook over a small `orders` table and runs it.
   - the bar shows the branch and whether the notebook changed since the last commit;
   - each cell is marked **new** or **changed** against the last commit, and **Diff** shows what changed in it; cells
     removed since are listed above the notebook;
+  - **History** on a cell lists the commits that changed it (from the file's last 50 commits), newest first: click one
+    for its diff, and **Use this version** to put that version back in the notebook (an edit: commit it as usual).
+    **Blame** shows, for each line, the commit that last changed it, or *not committed*;
   - the page only reads `.git`. Commit and sync with your own git tools; switching back to the page picks up a new
     commit. Nothing here holds a credential ([ADR 0032](https://github.com/stenhoor/smalt-brand/blob/main/docs/adr/0032-git-through-the-local-repository.md)).
 
@@ -54,7 +57,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-These are planned: history and conflicts per cell in a repository folder, notebook imports in the page, and completion from a TypeScript language service. See [Status](./status).
+These are planned: conflicts per cell in a repository folder, notebook imports in the page, and completion from a TypeScript language service. See [Status](./status).
 
 ## Run it locally
 

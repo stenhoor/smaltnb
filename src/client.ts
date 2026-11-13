@@ -105,6 +105,11 @@ export class KernelClient {
     return this.#send({ type: 'runAll', ...(options.actions && { actions: true }) });
   }
 
+  /** Reads a source into cells, graph and diagnostics without running it (an earlier version of the notebook). */
+  async parse(source: string, fileName?: string): Promise<NotebookView> {
+    return (await this.#send({ type: 'parse', source, ...(fileName !== undefined && { fileName }) })) as NotebookView;
+  }
+
   /** A window of a cell's collected output (or of one of its collected names), for a grid that scrolls. */
   async rows(cell: string, offset: number, limit: number, name?: string): Promise<Rows> {
     return (await this.#send({ type: 'rows', cell, offset, limit, ...(name !== undefined && { name }) })) as Rows;

@@ -14,6 +14,8 @@ import { sqlCellLanguage } from './sql-language.js';
 import { markdownLanguage } from './md-language.js';
 import { markdown } from 'smaltkit/markdown';
 import { drawGraph, updateGraphNode } from './graph-view.js';
+import { canOpenFolders, pickFolder, rememberFolder, rememberedFolder, requestAccess, RepoFolder } from './repo-folder.js';
+import { diffLines } from 'smaltkit/git';
 import { choiceControl } from 'smaltkit/controls';
 import type { ControlInfo } from '../src/ui.js';
 import { areaChart, barChart, chartData, columnChart, donutChart, lineChart, pieChart, scatterChart, type ChartColumn, type ChartContext } from 'smaltkit/charts';
@@ -32,6 +34,10 @@ const paramsEl = $<HTMLFormElement>('#params');
 interface CellUi {
   id: string;
   root: HTMLElement;
+  /** "new" or "changed" since the last commit, in a repository folder. */
+  change: HTMLElement;
+  /** The cell's diff against the last commit, when shown. */
+  diff: HTMLElement;
   editor: Editor;
   status: HTMLElement;
   reason: HTMLElement;
@@ -251,7 +257,9 @@ function render() {
     reason.className = 'reason';
     const actions = document.createElement('span');
     actions.className = 'actions';
-    head.append(title, kind, status, reason, actions);
+    const change = document.createElement('span');
+    change.className = 'change';
+    head.append(title, kind, change, status, reason, actions);
     if (meta.sql) head.append(toggle(chunk.id, meta.sql.kind === 'md'));
     const edHost = document.createElement('div');
     edHost.className = 'cell-editor';
@@ -274,18 +282,30 @@ function render() {
     const controls = document.createElement('div');
     controls.className = 'controls';
     controls.hidden = true;
-    root.append(head, edHost, controls, output);
+    const diff = document.createElement('pre');
+    diff.className = 'diff';
+    diff.hidden = true;
+    root.append(head, diff, edHost, controls, output);
     cellsEl.append(root);
+    // A plain SQL cell is written back from its SQL only once the SQL is edited: untouched, it keeps its text as written
+    // in the file, whitespace and all, so opening and saving a notebook changes nothing in it.
+    const shown = view ? sqlText(view) : '';
+    const asWritten = chunk.text.replace(/\n+$/, '');
     const text = view
-      ? () => { const body = sqlBody(withSql(view, editor.value)); return body ? `${head0}\n${body}` : head0; }
+      ? () => {
+        if (editor.value === shown) return asWritten;
+        const body = sqlBody(withSql(view, editor.value));
+        return body ? `${head0}\n${body}` : head0;
+      }
       : () => editor.value;
-    const c: CellUi = { id: chunk.id, root, editor, status, reason, actions, output, controls, controlsDrawn: '', grid: null, unobserve: null, drawn: '', text };
+    const c: CellUi = { id: chunk.id, root, change, diff, editor, status, reason, actions, output, controls, controlsDrawn: '', grid: null, unobserve: null, drawn: '', text };
     ui.set(chunk.id, c);
     sizeEditor(c);
     const state = kernel.state(chunk.id);
     if (state) showState(state);
   }
   if (focusedId) ui.get(focusedId)?.editor.focus();
+  showChanges();
 }
 
 function sizeEditor(c: CellUi) {
@@ -310,6 +330,7 @@ async function pinRowType(id: string, rowType: string) {
   const text = `${head}\n${sqlBody({ ...meta.sql, rowType })}`;
   source = [...ui.values()].map((c) => (c.id === id ? text : c.text()).replace(/\n+$/, '')).join('\n\n') + '\n';
   save();
+  await saveToFolder();
   await kernel.update(source).catch((err: Error) => toast(err.message, 'error'));
 }
 
@@ -346,6 +367,7 @@ function renderSource() {
 
 function edited() {
   for (const c of ui.values()) sizeEditor(c);
+  showChanges();
   if (sourceEditor) sourceEditor.host.style.height = `${Math.max(10, sourceEditor.value.split('\n').length) * 20 + 18}px`;
   if (pending) clearTimeout(pending);
   pending = setTimeout(() => void send(), 400);
@@ -357,6 +379,7 @@ async function send() {
   if (next === source) return;
   source = next;
   save();
+  await saveToFolder();
   await kernel.update(source).catch((err: Error) => toast(err.message, 'error'));
 }
 
@@ -606,6 +629,158 @@ function formatMs(ms: number): string {
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
 
+// A local repository folder (ADR 0032): notebooks open from a folder on disk and save back to it as plain files; in a
+// git repository, each cell is marked against the last commit. Commits and syncing are the user's, in their own tools.
+const folderButton = $<HTMLButtonElement>('#folder');
+const fileSelect = $<HTMLSelectElement>('#folder-file');
+const gitEl = $('#git-status');
+const removedEl = $('#removed');
+let folder: RepoFolder | null = null;
+let folderPath: string | null = null;
+/** Each cell's text at the last commit (null: no committed version), for the open folder notebook. */
+let headCells: Map<string, string> | null = null;
+let headKnown = false;
+const openDiffs = new Set<string>();
+
+folderButton.hidden = !canOpenFolders;
+
+async function useFolder(root: FileSystemDirectoryHandle, path: string | null) {
+  folder = await RepoFolder.open(root);
+  fileSelect.replaceChildren(new Option(folder.notebooks.length ? 'Open a notebook…' : 'No .nb.ts files here', ''), ...folder.notebooks.map((p) => new Option(p, p)));
+  fileSelect.hidden = false;
+  folderButton.textContent = `${folder.name}/`;
+  folderButton.title = 'Open another folder';
+  if (path && folder.notebooks.includes(path)) await openFromFolder(path);
+  else await rememberFolder(root, null);
+  await showGitStatus();
+}
+
+async function openFromFolder(path: string) {
+  if (!folder) return;
+  await flush();
+  clearUrlParams();
+  const text = await folder.read(path);
+  folderPath = path;
+  fileSelect.value = path;
+  await rememberFolder(folder.root, path);
+  await load(text, path.split('/').pop()!.replace(/\.nb\.ts$/, ''));
+  await readHead();
+}
+
+/** Leaves the folder's notebook (another notebook was opened): the folder stays open. */
+function leaveFolderFile() {
+  folderPath = null;
+  headCells = null;
+  headKnown = false;
+  fileSelect.value = '';
+  void rememberFolder(folder?.root ?? null, null);
+  showChanges();
+  void showGitStatus();
+}
+
+async function saveToFolder() {
+  if (!folder || !folderPath) return;
+  try {
+    await folder.write(folderPath, source);
+  } catch (err) {
+    toast(`Couldn't save ${folderPath}: ${(err as Error).message}`, 'error');
+  }
+  await showGitStatus();
+}
+
+/** Reads the notebook as it is at the last commit, into its cells. */
+async function readHead() {
+  headCells = null;
+  headKnown = false;
+  if (folder?.repo && folderPath) {
+    const text = await folder.atHead(folderPath);
+    if (text !== null) {
+      const nb = await kernel.parse(text, folderPath);
+      headCells = new Map(split(text, nb).map((c) => [c.id, c.text.trim()]));
+    }
+    headKnown = true;
+  }
+  showChanges();
+  await showGitStatus();
+}
+
+let gitStatusRun = 0;
+
+async function showGitStatus() {
+  // Reading git is asynchronous: only the latest call writes, so an older one finishing late can't overwrite it.
+  const run = ++gitStatusRun;
+  const f = folder;
+  const path = folderPath;
+  const text = source;
+  const branch = await f?.branch() ?? null;
+  const changed = f && branch && path ? await f.changedSinceHead(path, text) : null;
+  if (run !== gitStatusRun) return;
+  gitEl.hidden = !f;
+  if (!f) return;
+  const parts = [branch ? `on ${branch}` : 'not a git repository'];
+  if (changed !== null) parts.push(changed ? 'changed since the last commit' : 'no changes since the last commit');
+  gitEl.textContent = parts.join(' · ');
+  gitEl.title = 'Commit and sync with your own git tools: this page only reads the repository.';
+}
+
+/** Marks each cell new or changed against the last commit, and lists cells removed since. */
+function showChanges() {
+  const marking = headKnown && !sourceView;
+  for (const c of ui.values()) {
+    const before = headCells?.get(c.id);
+    const now = c.text().trim();
+    const state = !marking ? '' : before === undefined ? 'new' : before !== now ? 'changed' : '';
+    c.root.dataset.change = state;
+    c.change.replaceChildren();
+    if (state) {
+      const chip = document.createElement('span');
+      chip.className = `change-chip ${state}`;
+      chip.textContent = state;
+      chip.title = state === 'new' ? 'Not in the last commit' : 'Changed since the last commit';
+      c.change.append(chip);
+      if (state === 'changed') {
+        const b = button(openDiffs.has(c.id) ? 'Hide diff' : 'Diff', 'Show what changed in this cell since the last commit', () => {
+          if (openDiffs.has(c.id)) openDiffs.delete(c.id);
+          else openDiffs.add(c.id);
+          showChanges();
+        });
+        b.className = 'diff-toggle';
+        c.change.append(b);
+      }
+    }
+    const show = state === 'changed' && openDiffs.has(c.id);
+    c.diff.hidden = !show;
+    if (show) {
+      c.diff.replaceChildren(...diffLines(before!, now).map((l) => {
+        const line = document.createElement('span');
+        line.className = l.op;
+        line.textContent = `${l.op === 'add' ? '+' : l.op === 'remove' ? '-' : ' '} ${l.text}\n`;
+        return line;
+      }));
+    }
+  }
+  const removed = marking && headCells ? [...headCells.keys()].filter((id) => !ui.has(id)) : [];
+  removedEl.hidden = removed.length === 0;
+  removedEl.textContent = removed.length ? `Removed since the last commit: ${removed.join(', ')}` : '';
+}
+
+folderButton.addEventListener('click', async () => {
+  const remembered = folderButton.dataset.reopen === '1' ? await rememberedFolder() : null;
+  if (remembered && (await requestAccess(remembered.root))) {
+    delete folderButton.dataset.reopen;
+    return useFolder(remembered.root, remembered.path);
+  }
+  const root = await pickFolder();
+  if (root) await useFolder(root, null);
+});
+fileSelect.addEventListener('change', () => {
+  if (fileSelect.value) void openFromFolder(fileSelect.value);
+});
+// The user may commit (or switch branches) in their own tools while the page is open.
+addEventListener('focus', () => {
+  if (folder && folderPath) void RepoFolder.open(folder.root).then((f) => { folder = f; return readHead(); });
+});
+
 function save() {
   try {
     localStorage.setItem(STORE, source);
@@ -642,6 +817,7 @@ function addCell(kind: 'cell' | 'action' | 'sql' | 'md') {
     : `${kind}('${id}');`;
   source = currentSource() + `\n${added}\n`;
   save();
+  void saveToFolder();
   void kernel.update(source);
 }
 
@@ -670,6 +846,7 @@ $('#open').addEventListener('click', async () => {
   const file = await pickFile('.ts,.nb.ts,text/plain');
   if (!file) return;
   clearUrlParams();
+  leaveFolderFile();
   await load(await file.text(), file.name.replace(/(\.nb)?\.ts$/, ''));
 });
 $('#save').addEventListener('click', async () => {
@@ -678,6 +855,7 @@ $('#save').addEventListener('click', async () => {
 });
 $('#demo').addEventListener('click', async () => {
   clearUrlParams();
+  leaveFolderFile();
   await load(await (await fetch('demo.nb.ts')).text(), 'shop');
 });
 
@@ -701,6 +879,14 @@ async function start() {
   if (!src) src = await (await fetch('demo.nb.ts')).text();
   // ?minQty=5 in the page's address sets that parameter, so a link can share values.
   await load(src, name, Object.fromEntries(new URLSearchParams(location.search)));
+  // The folder open last time: reopened when access is still granted, else one click asks again.
+  const remembered = canOpenFolders ? await rememberedFolder() : null;
+  if (remembered?.granted) await useFolder(remembered.root, remembered.path).catch(() => {});
+  else if (remembered) {
+    folderButton.dataset.reopen = '1';
+    folderButton.textContent = `Reopen ${remembered.root.name}/`;
+    folderButton.title = 'The browser asks again before the page can use this folder';
+  }
 }
 
 void start();

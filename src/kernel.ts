@@ -70,7 +70,9 @@ export type Request =
   | { type: 'update'; id: number; source: string }
   | { type: 'run'; id: number; cells: string[]; force?: boolean }
   | { type: 'runAll'; id: number; actions?: boolean }
-  | { type: 'rows'; id: number; cell: string; offset: number; limit: number; name?: string };
+  | { type: 'rows'; id: number; cell: string; offset: number; limit: number; name?: string }
+  /** Reads another source into cells, graph and diagnostics, without running it (an earlier version, to compare). */
+  | { type: 'parse'; id: number; source: string; fileName?: string };
 
 /** Kernel to page. */
 export type Reply =
@@ -102,8 +104,8 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
   let fileName: string | undefined;
   let queue: Promise<unknown> = Promise.resolve();
 
-  const describe = (ts: TypeScriptKit, source: string): NotebookView => {
-    const graph = buildGraph(parseNotebook(source, ts, { fileName }));
+  const describe = (ts: TypeScriptKit, source: string, name = fileName): NotebookView => {
+    const graph = buildGraph(parseNotebook(source, ts, { fileName: name }));
     return { cells: graph.cells, edges: graph.edges, order: graph.order, diagnostics: graph.diagnostics };
   };
 
@@ -135,6 +137,8 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
         return opened().setParams(req.values);
       case 'setControl':
         return opened().setControl(req.cell, req.index, req.value);
+      case 'parse':
+        return describe(ts, req.source, req.fileName);
       case 'rows':
         return opened().rows(req.cell, req.offset, req.limit, req.name);
     }

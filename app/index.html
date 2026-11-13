@@ -33,12 +33,16 @@
   <button id="add-action" type="button" title="A cell that writes: it runs only when you run it">+ Action</button>
   <button id="source" type="button" aria-pressed="false" title="Show the whole notebook as its .nb.ts file">Source</button>
   <button id="graph" type="button" aria-pressed="false" title="Show how the cells depend on each other">Graph</button>
+  <button id="folder" type="button" title="Open notebooks from a folder on your computer, such as a git repository, and save them there" hidden>Folder…</button>
+  <select id="folder-file" aria-label="Notebook in the folder" hidden></select>
   <button id="open" type="button">Open…</button>
   <button id="save" type="button" title="Download the notebook as a .nb.ts file">Download</button>
   <button id="demo" type="button" title="Replace this notebook with the demo">Demo</button>
 </header>
 <form id="params" class="params" hidden aria-label="Parameters"></form>
+<div id="git-status" class="git-status" hidden></div>
 <main>
+  <div id="removed" class="removed" hidden></div>
   <section id="graph-panel" class="graph-panel" hidden aria-label="How the cells depend on each other"></section>
   <ul id="diagnostics" hidden></ul>
   <div id="cells"></div>

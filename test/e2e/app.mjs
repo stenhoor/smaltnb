@@ -33,6 +33,12 @@ const step = async (name, fn) => {
 try {
   await new Promise((r) => setTimeout(r, 300));
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  /** The checker's declarations fetched, by file (types.bin prepared, types.json their text), the worker's included. */
+  const typesRequests = [];
+  page.context().on('request', (r) => {
+    const m = /\/(types\.(?:bin|json))$/.exec(r.url());
+    if (m) typesRequests.push(m[1]);
+  });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const status = (id) => page.evaluate((id) => document.querySelector(`[data-cell="${id}"]`)?.dataset.status, id);
@@ -144,6 +150,35 @@ try {
     await shown('.fliter(', false);
     assert.equal(await allMarks(), 0);
     await until('byRegion', 'ok');
+    // Read from the prepared declarations: their text (the fallback) was never fetched.
+    assert.ok(typesRequests.includes('types.bin') && !typesRequests.includes('types.json'), typesRequests.join(', '));
+  });
+
+  await step("prepared declarations another smaltty wrote are ignored, and their text read instead", async () => {
+    // A page whose types.bin isn't one this smaltty reads (as a browser could keep from an earlier deploy).
+    const stale = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const fetched = [];
+    stale.context().on('request', (r) => {
+      const m = /\/(types\.(?:bin|json))$/.exec(r.url());
+      if (m) fetched.push(m[1]);
+    });
+    await stale.route(/\/types\.bin$/, (route) => route.fulfill({ status: 200, contentType: 'application/octet-stream', body: Buffer.alloc(256, 7) }));
+    try {
+      await stale.goto(`http://localhost:${port}/`);
+      await stale.waitForFunction(() => (document.body.dataset.checked ?? '').includes('.filter('), null, { timeout: 20000 });
+      const text = await stale.evaluate(() => document.querySelector('[data-cell="orders"] textarea').value);
+      await stale.evaluate((t) => {
+        const ta = document.querySelector('[data-cell="orders"] textarea');
+        ta.value = t;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }, text.replace('.filter(', '.fliter('));
+      await stale.waitForFunction(() => document.querySelectorAll('[data-cell="orders"] mark.sk-ed-warn').length === 1, null, { timeout: 20000 });
+      const title = await stale.evaluate(() => document.querySelector('[data-cell="orders"] mark.sk-ed-warn').title);
+      assert.equal(title, "Property 'fliter' does not exist on type 'Frame'. Did you mean 'filter'?");
+      assert.ok(fetched.includes('types.bin') && fetched.includes('types.json'), fetched.join(', '));
+    } finally {
+      await stale.close();
+    }
   });
 
   await step('an edit reruns what follows it', async () => {

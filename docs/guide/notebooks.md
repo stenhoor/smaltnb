@@ -195,7 +195,7 @@ export const byRegion = sql`SELECT region, sum(revenue) AS revenue FROM ${orders
   notebook can import others; notebooks that import each other are an error, naming the chain.
 - **Parameters** of an imported notebook take their defaults.
 - **Where it works:** [`smaltnb run`](./headless) reads imports from the notebook's folder, and so does the runtime given
-  `readNotebook`. In the page, notebooks have no folder yet: an import there says so (*planned*, with git).
+  `readNotebook`. In the page, notebooks have no folder yet: an import there says so (*planned*, with a local repository folder).
 - `tsc` checks an import as written (with `allowImportingTsExtensions`): [examples/report.nb.ts](../../examples/report.nb.ts)
   imports [examples/orders.nb.ts](../../examples/orders.nb.ts).
 

@@ -28,7 +28,7 @@ not aim to be a port of any of them.
 | 13 | Large results | The page holds the row count and the visible window only; the grid fetches more from the engine as you scroll. No silent `LIMIT`. Charts warn above a row limit. Grid downloads export the full result in the engine. |
 | 14 | Exports | `export` marks a notebook's public API. Importing a notebook evaluates only the imported exports and the cells they need; actions never run on import, and an export may not depend on an action. Each notebook has a typed default export, `nb.with(params)`, in its built output: `smaltnb build` emits `.js` and `.d.ts`, and the `.d.ts` takes its types from the source (2026-11-12: a source notebook can't hold `export default`, so importing from source gives named exports with default parameters). |
 | 15 | Imports | Relative paths for notebooks in the same repo; npm packages through an import map; notebooks in other repos as `gh:owner/repo@commit/path.nb.ts`, with a lock file. |
-| 16 | Git | The repo lives in OPFS as real git (isomorphic-git) and syncs with GitHub through its REST Git Data API. Other remotes later, through a proxy. Outputs are never stored with the notebook. |
+| 16 | Git | Through the user's local repository ([ADR 0032](https://github.com/stenhoor/smalt-brand/blob/main/docs/adr/0032-git-through-the-local-repository.md), 2026-11-13; replaces isomorphic-git with GitHub sync). smalt holds no credential and talks to no remote. The page opens a local repository folder (File System Access API, Chrome and Edge), saves notebooks there as plain files, and reads git's format (smaltkit's git reader) for per-cell diffs, history and conflicts. The user makes every commit and all work with remotes in their own tools; Firefox and Safari open and download files. Outputs are never stored with the notebook. |
 | 17 | Collaboration | Git only. |
 | 18 | Where it runs | The browser first. Node and GitHub Actions later, without designing them out: cell code gets no DOM, and the database, file store and git sit behind interfaces. |
 | 19 | Credentials | Secrets stay secret. A notebook declares what it needs, never a value (`credential(name, { kind, endpoint })`); SQL connections refer to it by name. The app registers values with the engine; cell code never sees them. Browser v1: session memory and autofill-friendly forms; later a passkey-unlocked vault and provider sign-in. Node and Actions: environment variables, cloud SDK credential lookup, OIDC. |
@@ -83,7 +83,7 @@ Each step is one PR.
 0. **Format and graph.** The `.nb.ts` parser, graph extraction, lint rules, tests. No UI, no engine.
 1. **Run.** Kernel worker, `sql` / `exec` / `md` / `param`, run modes, guards, plan-kind checks and held writes, table
    edges, collected results, grid output.
-2. **Git.** isomorphic-git in OPFS, GitHub sync, per-cell diff, commit.
+2. **Git.** smaltkit's git reader (objects, packs, refs), then the page in a local repository folder: save notebooks there, per-cell diff, history and conflicts (ADR 0032).
 3. **Libraries.** Notebook imports, export closure, typed factory, `smaltnb build`, lock file.
 4. **Types and UI.** Schema pinning, `ui.*` controls, charts, the OPFS result store.
 5. **Headless.** `smaltnb run` in Node and GitHub Actions, `expect` cells.
@@ -92,7 +92,7 @@ Each step is one PR.
 
 | Repository | Needed |
 |---|---|
-| smaltkit | In: `editor` and `grid` (from smaltui), `charts` (from smaltbi), `sql`. In stenhoor/smaltkit#6: `controls` and the environment manifest. Still needed: `git` (new). |
+| smaltkit | In: `editor` and `grid` (from smaltui), `charts` (from smaltbi), `sql`. In stenhoor/smaltkit#6: `controls` and the environment manifest. Still needed: `git`, a reader of git's format (ADR 0032). |
 | smaltdb | Which tables a statement reads and writes (for edges through tables and staleness after a write). In the worker client, a prepared statement's `readonly` and `kind`, as the in-process engine already gives them (plan data carries its kind, so plans are checked today). A change counter like SQLite's `PRAGMA data_version`. Later: writable external tables and an external file-writer plugin. |
 | smaltql | From a parse, without running: statement kind, tables read and written, result columns and types. |
 | smaltdf | A plan's kind and the tables it touches. Later: a frame over another language's plan with its types, and a typed `Frame<S>`. |

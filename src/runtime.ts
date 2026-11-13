@@ -581,7 +581,7 @@ export class Runtime {
     const from = this.#options.fileName ?? 'notebook.nb.ts';
     const path = resolveNotebookPath(from, spec);
     const read = this.#options.readNotebook;
-    if (!read) throw new Error(`Can't import '${spec}': importing a notebook needs its folder, which this notebook isn't given (smaltnb run gives it; in the page it is planned, with git).`);
+    if (!read) throw new Error(`Can't import '${spec}': importing a notebook needs its folder, which this notebook isn't given (open it from a folder in the page, or run it with smaltnb run).`);
     const chain = [...(this.#options.importing ?? [from]), path];
     if ((this.#options.importing ?? [from]).includes(path)) throw new Error(`Notebooks import each other: ${chain.join(' → ')}.`);
     let child = this.#imports.get(path);

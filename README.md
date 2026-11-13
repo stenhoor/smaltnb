@@ -42,7 +42,7 @@ export const clean = raw.filter(col('qty').gt(0));
 | `smaltnb/graph` | `buildGraph(notebook)`: edges, run order, `upstream` / `downstream`, `exportClosure` (what importing an export needs) and `propagate` (what reruns and what goes stale after a change). |
 | `smaltnb/runtime` | `createRuntime(source, { ts, importModule })`: runs cells as async functions, keeps each cell's state (`ok`, `stale`, `skipped`, `error`, …) and output, and reacts to `update(source)`, `run(ids)` and `runAll()` by the notebook's rules. With `readNotebook`, a notebook imports another's exports, running only the cells they need. |
 | `smaltnb/kernel` | `serveKernel(self, { ts, importModule })`: the runtime in a Web Worker, over messages. |
-| `smaltnb/client` | `KernelClient`: the page's side. `open`, `update`, `run`, `runAll`, and `restart()` to stop a run that never finishes. |
+| `smaltnb/client` | `KernelClient`: the page's side. `open`, `update`, `run`, `runAll`, and `restart()` to stop a run that never finishes; with `readNotebook`, the page reads the notebooks a notebook imports. |
 | `smaltnb/report` | `runNotebook(source, options)`: a whole run, as a scheduled run does, and its report as text, JSON or Markdown. |
 | `smaltnb/rowtype` | `rowTypeOf(columns, types)` and `checkRowType(ts, pinned, columns, types)`: a SQL result's row type as TypeScript, and whether a pinned one still matches. |
 | `smaltnb/history` | `cellChanges(versions)` and `blameLines(text, changes, diff)`: a cell's history in git, the commits that changed it and blame per line. |

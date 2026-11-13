@@ -15,7 +15,8 @@ import { markdownLanguage } from './md-language.js';
 import { markdown } from 'smaltkit/markdown';
 import { drawGraph, updateGraphNode } from './graph-view.js';
 import { canOpenFolders, pickFolder, rememberFolder, rememberedFolder, requestAccess, RepoFolder } from './repo-folder.js';
-import { diffLines } from 'smaltkit/git';
+import { diffLines, type GitCommit } from 'smaltkit/git';
+import { blameLines, cellChanges, type CellChange } from '../src/history.js';
 import { choiceControl } from 'smaltkit/controls';
 import type { ControlInfo } from '../src/ui.js';
 import { areaChart, barChart, chartData, columnChart, donutChart, lineChart, pieChart, scatterChart, type ChartColumn, type ChartContext } from 'smaltkit/charts';
@@ -38,6 +39,8 @@ interface CellUi {
   change: HTMLElement;
   /** The cell's diff against the last commit, when shown. */
   diff: HTMLElement;
+  /** The cell's history in git, when shown. */
+  history: HTMLElement;
   editor: Editor;
   status: HTMLElement;
   reason: HTMLElement;
@@ -129,6 +132,9 @@ graphButton.addEventListener('click', () => {
   showGraph();
 });
 
+/** Draw the cells again on the next notebook message: a cell's text was replaced (Use this version). */
+let forceRender = false;
+
 function onNotebook(nb: NotebookView) {
   const before = notebook;
   notebook = nb;
@@ -139,7 +145,8 @@ function onNotebook(nb: NotebookView) {
     // A pinned row type changed (Pin types): the SQL view writes the cell back with the new one.
     && rowTypeOf(before?.cells[i]?.sql) === rowTypeOf(nb.cells[i]?.sql));
   chunks = next;
-  if (!same && !sourceView) render();
+  if ((!same || forceRender) && !sourceView) render();
+  forceRender = false;
   showDiagnostics(nb);
   showGraph();
   typeCheck();
@@ -285,7 +292,10 @@ function render() {
     const diff = document.createElement('pre');
     diff.className = 'diff';
     diff.hidden = true;
-    root.append(head, diff, edHost, controls, output);
+    const history = document.createElement('div');
+    history.className = 'history';
+    history.hidden = true;
+    root.append(head, diff, history, edHost, controls, output);
     cellsEl.append(root);
     // A plain SQL cell is written back from its SQL only once the SQL is edited: untouched, it keeps its text as written
     // in the file, whitespace and all, so opening and saving a notebook changes nothing in it.
@@ -298,7 +308,7 @@ function render() {
         return body ? `${head0}\n${body}` : head0;
       }
       : () => editor.value;
-    const c: CellUi = { id: chunk.id, root, change, diff, editor, status, reason, actions, output, controls, controlsDrawn: '', grid: null, unobserve: null, drawn: '', text };
+    const c: CellUi = { id: chunk.id, root, change, diff, history, editor, status, reason, actions, output, controls, controlsDrawn: '', grid: null, unobserve: null, drawn: '', text };
     ui.set(chunk.id, c);
     sizeEditor(c);
     const state = kernel.state(chunk.id);
@@ -693,6 +703,7 @@ async function readHead() {
   headCells = null;
   headKnown = false;
   if (folder?.repo && folderPath) {
+    headId = await folder.repo.resolve('HEAD').catch(() => '');
     const text = await folder.atHead(folderPath);
     if (text !== null) {
       const nb = await kernel.parse(text, folderPath);
@@ -724,6 +735,122 @@ async function showGitStatus() {
 }
 
 /** Marks each cell new or changed against the last commit, and lists cells removed since. */
+const openHistory = new Set<string>();
+/** A cell's changes in git, by notebook path, HEAD and cell, read once. */
+const historyCache = new Map<string, Promise<CellChange<GitCommit>[]>>();
+const HISTORY_LIMIT = 50;
+
+function historyKey(c: CellUi): string {
+  return `${folderPath}\n${headId}\n${c.id}\n${c.text().trim()}\n${blameOn.has(c.id)}`;
+}
+
+let headId = '';
+
+/** The commits that changed a cell, newest first: the notebook at each commit that changed its file, read into cells. */
+function cellHistory(id: string): Promise<CellChange<GitCommit>[]> {
+  const key = `${folderPath}\n${headId}\n${id}`;
+  let found = historyCache.get(key);
+  if (!found) {
+    const f = folder!;
+    const path = folderPath!;
+    found = (async () => {
+      const commits = await f.repo!.log('HEAD', { path, limit: HISTORY_LIMIT });
+      const versions = [];
+      for (const commit of commits) {
+        const text = await f.repo!.readText(commit.id, path);
+        const cells = text === null ? [] : split(text, await kernel.parse(text, path));
+        versions.push({ commit, text: cells.find((x) => x.id === id)?.text.trim() ?? null });
+      }
+      return cellChanges(versions);
+    })();
+    historyCache.set(key, found);
+  }
+  return found;
+}
+
+const blameOn = new Set<string>();
+
+async function showHistoryOf(c: CellUi) {
+  const key = historyKey(c);
+  c.history.dataset.drawn = key;
+  c.history.replaceChildren(Object.assign(document.createElement('div'), { className: 'history-note', textContent: 'Reading history…' }));
+  let changes: CellChange<GitCommit>[];
+  try {
+    changes = await cellHistory(c.id);
+  } catch (err) {
+    c.history.replaceChildren(Object.assign(document.createElement('div'), { className: 'history-note', textContent: `Couldn't read the history: ${(err as Error).message}` }));
+    return;
+  }
+  if (c.history.dataset.drawn !== key) return; // redrawn meanwhile
+  const top = document.createElement('div');
+  top.className = 'history-head';
+  const note = document.createElement('span');
+  note.textContent = changes.length
+    ? `${changes.length} commit${changes.length === 1 ? '' : 's'} changed this cell${changes.length === HISTORY_LIMIT ? ` (the last ${HISTORY_LIMIT} of the file's)` : ''}`
+    : 'No commit has this cell yet';
+  const blame = button(blameOn.has(c.id) ? 'Hide blame' : 'Blame', 'For each line, the commit that last changed it', () => {
+    if (blameOn.has(c.id)) blameOn.delete(c.id);
+    else blameOn.add(c.id);
+    void showHistoryOf(c);
+  });
+  blame.className = 'diff-toggle blame-toggle';
+  top.append(note, ...(changes.length ? [blame] : []));
+  const parts: HTMLElement[] = [top];
+  if (blameOn.has(c.id)) {
+    const pre = document.createElement('pre');
+    pre.className = 'blame';
+    for (const l of blameLines(c.text().trim(), changes, diffLines)) {
+      const who = document.createElement('span');
+      who.className = 'blame-who';
+      who.textContent = l.commit ? `${l.commit.id.slice(0, 7)} ${l.commit.author.name}`.padEnd(22).slice(0, 22) : 'not committed'.padEnd(22);
+      if (l.commit) who.title = `${new Date(l.commit.author.time * 1000).toISOString().slice(0, 10)} · ${l.commit.message.split('\n')[0]}`;
+      pre.append(who, ` ${l.text}\n`);
+    }
+    parts.push(pre);
+  }
+  const list = document.createElement('ol');
+  list.className = 'history-list';
+  for (const ch of changes) {
+    const li = document.createElement('li');
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'history-row';
+    const when = new Date(ch.commit.author.time * 1000).toISOString().slice(0, 10);
+    row.textContent = `${ch.commit.id.slice(0, 7)} · ${when} · ${ch.commit.author.name} · ${ch.commit.message.split('\n')[0]}${ch.before === null ? ' (added the cell)' : ''}`;
+    const detail = document.createElement('div');
+    detail.className = 'history-detail';
+    detail.hidden = true;
+    row.addEventListener('click', () => {
+      detail.hidden = !detail.hidden;
+      if (detail.hidden || detail.childElementCount) return;
+      const pre = document.createElement('pre');
+      pre.className = 'diff';
+      pre.append(...diffLines(ch.before ?? '', ch.text).map((l) => {
+        const line = document.createElement('span');
+        line.className = l.op;
+        line.textContent = `${l.op === 'add' ? '+' : l.op === 'remove' ? '-' : ' '} ${l.text}\n`;
+        return line;
+      }));
+      const use = button('Use this version', "Put this commit's version of the cell in the notebook (the file in your folder; commit it with your own tools)", () => void useVersion(c.id, ch.text));
+      detail.append(pre, use);
+    });
+    li.append(row, detail);
+    list.append(li);
+  }
+  parts.push(list);
+  c.history.replaceChildren(...parts);
+}
+
+/** Puts an earlier version of a cell in the notebook, as an edit: saved to the folder's file, and the cell reruns. */
+async function useVersion(id: string, text: string) {
+  await flush();
+  source = [...ui.values()].map((c) => (c.id === id ? text : c.text()).replace(/\n+$/, '')).join('\n\n') + '\n';
+  save();
+  await saveToFolder();
+  forceRender = true;
+  await kernel.update(source).catch((err: Error) => toast(err.message, 'error'));
+}
+
 function showChanges() {
   const marking = headKnown && !sourceView;
   for (const c of ui.values()) {
@@ -748,6 +875,18 @@ function showChanges() {
         c.change.append(b);
       }
     }
+    if (marking && folder?.repo && c.id !== 'setup') {
+      const h = button(openHistory.has(c.id) ? 'Hide history' : 'History', 'The commits that changed this cell, and blame', () => {
+        if (openHistory.has(c.id)) openHistory.delete(c.id);
+        else openHistory.add(c.id);
+        showChanges();
+      });
+      h.className = 'diff-toggle history-toggle';
+      c.change.append(h);
+    }
+    const showHistory = marking && openHistory.has(c.id);
+    c.history.hidden = !showHistory;
+    if (showHistory && c.history.dataset.drawn !== historyKey(c)) void showHistoryOf(c);
     const show = state === 'changed' && openDiffs.has(c.id);
     c.diff.hidden = !show;
     if (show) {

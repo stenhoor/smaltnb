@@ -13,4 +13,5 @@ export * from './report.js';
 export * from './library.js';
 export * from './rowtype.js';
 export * from './history.js';
+export * from './conflicts.js';
 export * from './database.js';

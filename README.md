@@ -46,6 +46,7 @@ export const clean = raw.filter(col('qty').gt(0));
 | `smaltnb/report` | `runNotebook(source, options)`: a whole run, as a scheduled run does, and its report as text, JSON or Markdown. |
 | `smaltnb/rowtype` | `rowTypeOf(columns, types)` and `checkRowType(ts, pinned, columns, types)`: a SQL result's row type as TypeScript, and whether a pinned one still matches. |
 | `smaltnb/history` | `cellChanges(versions)` and `blameLines(text, changes, diff)`: a cell's history in git, the commits that changed it and blame per line. |
+| `smaltnb/conflicts` | `conflictSides`, `mergeCells` and `resolveCells`: a notebook with git's conflict markers, as each side has it, the cells that differ, and the notebook with a choice made for each. |
 | `smaltnb/library` | `notebookFactory`: a built notebook's default export. `.with(params).get(...names)` runs what those exports need, with typed parameters. |
 | `smaltnb build` | Writes notebooks as libraries: `.nb.js` (the factory) and `.nb.d.ts` (its types, from the source). See [Notebooks as libraries](https://stenhoor.github.io/smaltnb/guide/notebooks#notebooks-as-libraries). |
 | `smaltnb run` | The command: runs a notebook in Node with parameters, prints each cell's status, writes reports, and exits 1 when a cell failed. Also a GitHub Action (`uses: stenhoor/smaltnb@main`). See [Headless runs](https://stenhoor.github.io/smaltnb/guide/headless). |

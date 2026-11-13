@@ -154,13 +154,22 @@ function onNotebook(nb: NotebookView) {
 }
 
 // Type checking (smaltkit/typecheck: smaltty's checker in a worker): the notebook's calls into smaltnb and smaltdf,
-// checked against their declarations (types.json, written by scripts/build-app.mjs). Errors are warnings, marked in
-// the cells' editors; the notebook still runs. Where the worker can't start, there are no warnings.
+// checked against their declarations, written by scripts/build-app.mjs prepared (types.bin, smaltty's prepare()) and as
+// text (types.json). The checker reads the buffer in place of parsing the text, and its worker fetches the text only
+// if its smaltty can't read the buffer. Errors are warnings, marked in the cells' editors; the notebook still runs. The
+// worker is started as the page starts, and warms itself while the notebook loads, so the first check doesn't wait for
+// it. Where the worker can't start, there are no warnings.
 let checker: Promise<TypeCheckWorker | null> | null = null;
+/** The names notebooks import the declarations by, as scripts/build-app.mjs writes them in types.json. */
+const TYPE_PACKAGES = { smaltnb: '/nb/index.d.ts', '@smaltdb/df': '/df/index.d.ts' };
+const checkerSetup = () =>
+  fetch(new URL('./types.bin', import.meta.url))
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`types.bin: ${r.status}`))))
+    .then((prepared) => ({ files: {}, packages: TYPE_PACKAGES, prepared, fallback: new URL('./types.json', import.meta.url).href }))
+    .catch(() => fetch(new URL('./types.json', import.meta.url)).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`)))));
 const loadChecker = () =>
-  (checker ??= fetch(new URL('./types.json', import.meta.url))
-    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`))))
-    .then((setup) => typeCheckWorker(setup, { workerUrl: new URL('./typecheck-worker.js', import.meta.url) }))
+  (checker ??= checkerSetup()
+    .then((setup) => typeCheckWorker(setup, { workerUrl: new URL('./typecheck-worker.js', import.meta.url), warm: true }))
     .catch(() => null));
 
 /** Checks the notebook, and marks each warning in the editor showing its code, if the source is still the same. */
@@ -1130,6 +1139,7 @@ nameEl.addEventListener('input', fitName);
 nameEl.addEventListener('change', save);
 
 async function start() {
+  void loadChecker(); // started now, it is ready by the time the notebook is first checked
   let src: string | null = null;
   let name = 'shop';
   try {

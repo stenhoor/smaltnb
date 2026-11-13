@@ -83,8 +83,10 @@ The page and its three workers are bundled with esbuild: the page, the kernel wo
 TypeScript, from `smaltkit/typescript`), the database's engine worker (smaltdb with smaltql and smaltdf), and the type
 checker's worker (`smaltkit/typecheck`). The editor and the grid come from smaltkit.
 
-As you type, the type checker reads the notebook's calls into smaltnb and smaltdf against their declarations
-(`types.json`, written by the build from smaltnb's `dist/` and smaltdf's `.d.ts`). It marks what TypeScript would call
+As you type, the type checker reads the notebook's calls into smaltnb and smaltdf against their declarations, which
+the build writes from smaltnb's `dist/` and smaltdf's `.d.ts` twice: prepared (`types.bin`, smaltty's `prepare()`),
+which the checker reads in place of parsing them, and as text (`types.json`), which its worker fetches only if its
+smaltty can't read the buffer. The worker starts with the page and gets ready while the notebook loads. It marks what TypeScript would call
 an error in the cell it is in: a method that doesn't exist (with TypeScript's *Did you mean …?*), an argument too many
 or too few, or of the wrong type. These are warnings: the text is underlined and the line number marked, with the
 message on hover, and the notebook still runs. A cell showing its SQL or Markdown has its warnings in the TS view and in

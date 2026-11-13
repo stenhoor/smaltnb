@@ -90,7 +90,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "esbuild": "^0.25.12",
-    "smaltkit": "github:stenhoor/smaltkit#c7d9c5c49ce1e9e14b129a6fe7bf25bc36764b7b",
+    "smaltkit": "github:stenhoor/smaltkit#21d0bee79889fc529c3a73b8bce92a984ab867f4",
     "typescript": "~6.0.3",
     "typescript7": "npm:typescript@~7.0.2",
     "vitepress": "^1.6.4"

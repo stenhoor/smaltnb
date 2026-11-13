@@ -35,7 +35,7 @@ features:
     link: /guide/notebooks#notebooks-as-libraries
     linkText: Libraries
   - title: Versioned in git
-    details: Notebooks are plain files in your own git repository, with changes shown cell by cell. smalt holds no credentials; you commit and sync with your own tools.
+    details: Notebooks are plain files in a clone of a git repository on your computer, with changes shown cell by cell. smalt holds no credentials; commit and sync with your usual git tools.
     link: /DESIGN
     linkText: The design
 ---

@@ -114,3 +114,20 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px max(16px, env(safe-area-
 .history-detail .diff { border: 1px solid var(--border); border-radius: 4px; width: 100%; }
 .history .blame { margin: 4px 0 8px; font: 12px/1.5 var(--font-mono); white-space: pre; overflow: auto; }
 .blame-who { color: var(--text-3); }
+
+/* Merge conflicts by cell: both versions of each cell that differs, and the choices. */
+.resolver { display: grid; gap: 12px; }
+.resolver > p { margin: 0; padding: 10px 14px; border: 1px solid var(--border); border-left: 3px solid var(--warning); border-radius: 6px; background: var(--surface); }
+.resolve-cell { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--warning); border-radius: 8px; padding: 10px 14px; display: grid; gap: 8px; }
+.resolve-head { display: flex; gap: 10px; align-items: baseline; }
+.resolve-what { color: var(--text-2); font-size: 13px; }
+.resolve-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.resolve-label { font: 500 12px var(--font-mono); color: var(--text-2); margin-bottom: 4px; }
+.resolve-cell pre { margin: 0; padding: 8px 10px; font: 12px/1.5 var(--font-mono); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: auto; white-space: pre; }
+.resolve-choices { display: flex; gap: 8px; flex-wrap: wrap; }
+.resolve-choices button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); }
+.resolve-edit { font: 12px/1.5 var(--font-mono); width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); }
+.resolver-foot { display: flex; gap: 12px; align-items: center; }
+.resolver-left { color: var(--text-2); font-size: 13px; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 700px) { .resolve-sides { grid-template-columns: 1fr; } }

@@ -409,6 +409,69 @@ try {
     await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
   });
 
+  await step('merge conflicts by cell: only the cells that differ are offered, and saving writes a clean file', async () => {
+    // A real conflict, made with git: ours sets minQty to 3; theirs sets it to 5 and adds a cell, which merges cleanly.
+    const repo = mkdtempSync(join(tmpdir(), 'smaltnb-merge-'));
+    const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.org', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.org', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' };
+    const git = (...args) => execFileSync('git', args, { cwd: repo, env, stdio: 'pipe' });
+    const shop = readFileSync('examples/shop.nb.ts', 'utf8');
+    git('init', '-q', '-b', 'main');
+    writeFileSync(join(repo, 'shop.nb.ts'), shop);
+    git('add', '-A');
+    git('commit', '-q', '-m', 'the shop notebook');
+    git('checkout', '-q', '-b', 'other');
+    writeFileSync(join(repo, 'shop.nb.ts'), shop.replace('param.number(1)', 'param.number(5)') + "\ncell('extra');\nexport const extra = 42;\n");
+    git('commit', '-qam', 'minQty 5, and an extra cell');
+    git('checkout', '-q', 'main');
+    writeFileSync(join(repo, 'shop.nb.ts'), shop.replace('param.number(1)', 'param.number(3)'));
+    git('commit', '-qam', 'minQty 3');
+    assert.throws(() => git('merge', '-q', 'other'), 'the merge conflicts');
+    assert.match(readFileSync(join(repo, 'shop.nb.ts'), 'utf8'), /^<<<<<<< HEAD$/m);
+    const files = [];
+    const walk = (d) => { for (const n of readdirSync(d)) { const f = join(d, n); if (statSync(f).isDirectory()) walk(f); else files.push(relative(repo, f)); } };
+    walk(repo);
+    await page.unroute('**/__fixture/**');
+    await page.route('**/__fixture/**', (r) => r.fulfill({ body: readFileSync(join(repo, decodeURIComponent(new URL(r.request().url()).pathname.slice('/__fixture/'.length)))) }));
+    await page.evaluate(async (files) => {
+      const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('merge-repo', { create: true });
+      for (const f of files) {
+        const parts = f.split('/');
+        let d = root;
+        for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p, { create: true });
+        const w = await (await d.getFileHandle(parts.at(-1), { create: true })).createWritable();
+        await w.write(await (await fetch(`/__fixture/${encodeURIComponent(f).replace(/%2F/g, '/')}`)).arrayBuffer());
+        await w.close();
+      }
+      window.showDirectoryPicker = async () => root;
+    }, files);
+    await page.click('#folder');
+    // The folder before this one also had a shop.nb.ts: wait for this folder's list.
+    await page.waitForFunction(() => document.querySelector('#folder')?.textContent === 'merge-repo/');
+    await page.selectOption('#folder-file', 'shop.nb.ts');
+
+    await page.waitForSelector('.resolver');
+    assert.match(await page.textContent('.resolver > p'), /^This notebook has 1 merge conflict between HEAD \(ours\) and other \(theirs\)\. 1 cell differs/);
+    assert.deepEqual(await page.$$eval('.resolve-cell', (els) => els.map((e) => e.dataset.cell)), ['params'], 'extra merged cleanly: not offered');
+    const [ours, theirs] = await page.$$eval('.resolve-cell[data-cell="params"] pre', (els) => els.map((e) => e.textContent));
+    assert.match(ours, /param\.number\(3\)/);
+    assert.match(theirs, /param\.number\(5\)/);
+    assert.equal(await page.$eval('.resolver-foot button', (b) => b.disabled), true, 'nothing chosen yet');
+    await page.click('.resolve-cell[data-cell="params"] button:has-text("Keep theirs")');
+    assert.equal(await page.textContent('.resolver-left'), 'Ready to save');
+    await page.click('.resolver-foot button');
+
+    await until('byRegion', 'ok');
+    assert.match(await cellText('params'), /param\.number\(5\)/);
+    assert.ok(await page.$('.cell[data-cell="extra"]'), 'the cell theirs added is there');
+    const saved = await page.evaluate(async () => (await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('merge-repo')).getFileHandle('shop.nb.ts')).getFile()).text());
+    assert.doesNotMatch(saved, /^(<{7}|={7}|>{7})/m, 'no markers left');
+    assert.match(saved, /param\.number\(5\)/);
+    assert.match(saved, /cell\('extra'\)/);
+    await page.click('#demo');
+    await until('byRegion', 'ok');
+    await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
+  });
+
   await step('restart stops a cell that never finishes; the cells can run again', async () => {
     const before = await page.evaluate(() => document.querySelectorAll('.cell').length);
     await page.click('#add-cell');

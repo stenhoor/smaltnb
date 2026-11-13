@@ -15,6 +15,16 @@ opens a demo notebook over a small `orders` table and runs it.
 - **Text cells** (`lang: 'md'`) show their Markdown to edit, rendered below. `${value}` puts a notebook value in the
   text, so prose follows the parameters. **TS** shows the TypeScript, **MD** goes back. Raw HTML in the text shows as
   text.
+- **Folder…** (Chrome and Edge) opens notebooks from a folder on your computer, such as a git repository, and saves
+  them back there as plain files as you edit. Pick the folder, then a `.nb.ts` file in it. In a git repository:
+  - the bar shows the branch and whether the notebook changed since the last commit;
+  - each cell is marked **new** or **changed** against the last commit, and **Diff** shows what changed in it; cells
+    removed since are listed above the notebook;
+  - the page only reads `.git`. Commit and sync with your own git tools; switching back to the page picks up a new
+    commit. Nothing here holds a credential ([ADR 0032](https://github.com/stenhoor/smalt-brand/blob/main/docs/adr/0032-git-through-the-local-repository.md)).
+
+  The folder is remembered; the browser may ask again for access, with one click. Firefox and Safari can't open
+  folders: there, **Open…** and **Download** work with files.
 - **Graph** shows how the cells depend on each other: a box per cell, left to right by depth, in its status colour,
   and an arrow for each name a cell reads from another (dashed when only its guard reads it). Hover a box to bring
   forward what it reads and what reads it; click it to go to the cell. It stays open across reloads in this browser.
@@ -44,7 +54,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-These are planned: a local repository folder for notebooks in git (per-cell changes, history and conflicts; you commit with your own tools), and completion from a TypeScript language service. See [Status](./status).
+These are planned: history and conflicts per cell in a repository folder, notebook imports in the page, and completion from a TypeScript language service. See [Status](./status).
 
 ## Run it locally
 

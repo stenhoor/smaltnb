@@ -7,6 +7,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 
 // require, not import: it also finds a Playwright installed globally (NODE_PATH).
 const { chromium } = createRequire(import.meta.url)('playwright');
@@ -269,6 +272,76 @@ try {
   });
 
   // Last: its Run all also starts the cell that never finishes, which keeps the kernel busy.
+  await step('a repository folder: open a notebook from it, save back to it, and see each cell against the last commit', async () => {
+    // A git repository made with the git command, with the demo notebook committed. The page gets it as a folder from
+    // the browser's own storage (OPFS), in place of the folder picker a person would use: the same directory handle.
+    const repo = mkdtempSync(join(tmpdir(), 'smaltnb-repo-'));
+    const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.org', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.org', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' };
+    const git = (...args) => execFileSync('git', args, { cwd: repo, env });
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(repo, 'nb'));
+    writeFileSync(join(repo, 'nb/shop.nb.ts'), readFileSync('examples/shop.nb.ts', 'utf8'));
+    git('add', '-A');
+    git('commit', '-q', '-m', 'the shop notebook');
+    git('gc', '-q');
+    const files = [];
+    const walk = (d) => { for (const n of readdirSync(d)) { const f = join(d, n); if (statSync(f).isDirectory()) walk(f); else files.push(relative(repo, f)); } };
+    walk(repo);
+    await page.route('**/__fixture/**', (r) => r.fulfill({ body: readFileSync(join(repo, decodeURIComponent(new URL(r.request().url()).pathname.slice('/__fixture/'.length)))) }));
+    await page.evaluate(async (files) => {
+      const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('shop-repo', { create: true });
+      for (const f of files) {
+        const parts = f.split('/');
+        let d = root;
+        for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p, { create: true });
+        const w = await (await d.getFileHandle(parts.at(-1), { create: true })).createWritable();
+        await w.write(await (await fetch(`/__fixture/${encodeURIComponent(f).replace(/%2F/g, '/')}`)).arrayBuffer());
+        await w.close();
+      }
+      window.showDirectoryPicker = async () => root;
+    }, files);
+
+    await page.click('#folder');
+    await page.waitForFunction(() => [...document.querySelectorAll('#folder-file option')].some((o) => o.value === 'nb/shop.nb.ts'));
+    await page.selectOption('#folder-file', 'nb/shop.nb.ts');
+    await until('byRegion', 'ok');
+    await page.waitForFunction(() => document.querySelector('#git-status')?.textContent === 'on main · no changes since the last commit');
+    assert.equal(await page.$$eval('.change-chip', (els) => els.length), 0, 'nothing has changed yet');
+
+    // An edit: saved to the folder's file, and the cell is marked changed, with its diff.
+    await setCell('params', (await cellText('params')).replace('param.number(1)', 'param.number(2)'));
+    await page.waitForFunction(() => document.querySelector('#git-status')?.textContent === 'on main · changed since the last commit', null, { timeout: 30000 });
+    assert.equal(await page.textContent('.cell[data-cell="params"] .change-chip'), 'changed');
+    assert.equal(await page.$$eval('.change-chip', (els) => els.length), 1, 'only that cell');
+    await page.click('.cell[data-cell="params"] .diff-toggle');
+    const diff = await page.$$eval('.cell[data-cell="params"] .diff span', (els) => els.map((e) => `${e.className}:${e.textContent.trim()}`));
+    assert.ok(diff.includes('remove:- export const params = param({ minQty: param.number(1) });'), diff.join('\n'));
+    assert.ok(diff.includes('add:+ export const params = param({ minQty: param.number(2) });'), diff.join('\n'));
+    const saved = await page.evaluate(async () => {
+      const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('shop-repo');
+      return (await (await (await root.getDirectoryHandle('nb')).getFileHandle('shop.nb.ts')).getFile()).text();
+    });
+    assert.match(saved, /param\.number\(2\)/, 'the file in the folder has the edit');
+
+    // A new cell is marked new.
+    await page.click('#add-cell');
+    await page.waitForFunction(() => document.querySelectorAll('.change-chip.new').length === 1, null, { timeout: 30000 });
+    // The folder is remembered for the next visit (its handle in IndexedDB; listing the keys loads no handle). Reopening
+    // it isn't driven here: this headless Chromium closes the page when an OPFS handle is read back from IndexedDB.
+    assert.deepEqual(await page.evaluate(() => new Promise((resolve) => {
+      const q = indexedDB.open('smaltnb-folder');
+      q.onsuccess = () => { const g = q.result.transaction('handles').objectStore('handles').getAllKeys(); g.onsuccess = () => resolve(g.result); };
+    })), ['last']);
+
+    // Back to a notebook outside the folder: no marks.
+    await page.click('#demo');
+    await until('byRegion', 'ok');
+    assert.equal(await page.$$eval('.change-chip', (els) => els.length), 0);
+    await page.waitForFunction(() => document.querySelector('#git-status')?.textContent === 'on main', null, { timeout: 10000 });
+    // Forget the folder, so a later reload in these steps doesn't read the stored handle back (see above).
+    await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
+  });
+
   await step('restart stops a cell that never finishes; the cells can run again', async () => {
     const before = await page.evaluate(() => document.querySelectorAll('.cell').length);
     await page.click('#add-cell');

@@ -17,6 +17,7 @@ import { drawGraph, updateGraphNode } from './graph-view.js';
 import { canOpenFolders, pickFolder, rememberFolder, rememberedFolder, requestAccess, RepoFolder } from './repo-folder.js';
 import { diffLines, type GitCommit } from 'smaltkit/git';
 import { blameLines, cellChanges, type CellChange } from '../src/history.js';
+import { conflictSides, defaultChoice, hasConflictMarkers, mergeCells, resolveCells, type CellChoice, type MergeCell, type SideCell } from '../src/conflicts.js';
 import { choiceControl } from 'smaltkit/controls';
 import type { ControlInfo } from '../src/ui.js';
 import { areaChart, barChart, chartData, columnChart, donutChart, lineChart, pieChart, scatterChart, type ChartColumn, type ChartContext } from 'smaltkit/charts';
@@ -682,8 +683,127 @@ async function openFromFolder(path: string) {
   folderPath = path;
   fileSelect.value = path;
   await rememberFolder(folder.root, path);
-  await load(text, path.split('/').pop()!.replace(/\.nb\.ts$/, ''));
+  const name = path.split('/').pop()!.replace(/\.nb\.ts$/, '');
+  if (hasConflictMarkers(text)) return showResolver(text, name);
+  await load(text, name);
   await readHead();
+}
+
+// Merge conflicts by cell (ADR 0032): a notebook with git's conflict markers opens in a resolver, cell by cell. Saving
+// writes the notebook without markers (to the folder's file); the user marks it resolved and commits in their own tools.
+async function showResolver(text: string, name: string) {
+  let sides;
+  try {
+    sides = conflictSides(text);
+  } catch (err) {
+    toast(`${(err as Error).message} Opened as it is.`, 'error');
+    return load(text, name);
+  }
+  const fileName = `${name}.nb.ts`;
+  const cellsOf = async (src: string): Promise<SideCell[]> => split(src, await kernel.parse(src, fileName)).map((c) => ({ id: c.id, text: c.text.replace(/\n+$/, '') }));
+  const merged = mergeCells(await cellsOf(sides.ours), await cellsOf(sides.theirs), sides.base === null ? null : await cellsOf(sides.base));
+  const choices: Record<string, CellChoice | undefined> = {};
+  nameEl.value = name;
+  fitName();
+  for (const c of ui.values()) { c.grid?.destroy(); c.unobserve?.(); }
+  ui = new Map();
+  removedEl.hidden = true;
+  const box = document.createElement('section');
+  box.className = 'resolver';
+  const oursName = sides.oursLabel || 'ours';
+  const theirsName = sides.theirsLabel || 'theirs';
+  const differs = merged.filter((c) => c.kind === 'differs');
+  const intro = document.createElement('p');
+  intro.textContent = `This notebook has ${sides.count} merge conflict${sides.count === 1 ? '' : 's'} between ${oursName} (ours) and ${theirsName} (theirs). `
+    + `${differs.length} cell${differs.length === 1 ? ' differs' : 's differ'}: choose a version of each, then save. `
+    + `${merged.filter((c) => c.kind === 'same').length} cells are the same on both sides.`;
+  const save = button('Save resolved notebook', 'Write the notebook without conflict markers', () => void finish());
+  save.className = 'primary';
+  const left = document.createElement('span');
+  left.className = 'resolver-left';
+  const refresh = () => {
+    const open = merged.filter((c) => (choices[c.id] ?? defaultChoice(c)) === null).length;
+    save.disabled = open > 0;
+    left.textContent = open ? `${open} to choose` : 'Ready to save';
+  };
+  const cards = merged.filter((c) => c.kind !== 'same').map((c) => card(c, choices, refresh, oursName, theirsName));
+  const foot = document.createElement('div');
+  foot.className = 'resolver-foot';
+  foot.append(save, left);
+  box.append(intro, ...cards, foot);
+  cellsEl.replaceChildren(box);
+  refresh();
+
+  async function finish() {
+    const resolved = resolveCells(merged, choices);
+    source = resolved;
+    if (folder && folderPath) await folder.write(folderPath, resolved).catch((err: Error) => toast(`Couldn't save ${folderPath}: ${err.message}`, 'error'));
+    await load(resolved, name);
+    await readHead();
+    toast('Saved without conflict markers. Mark it resolved (git add) and commit, in your own tools.');
+  }
+}
+
+/** One cell of the resolver: both versions side by side (or one side's cell), with the choices for it. */
+function card(c: MergeCell, choices: Record<string, CellChoice | undefined>, refresh: () => void, oursName: string, theirsName: string): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'resolve-cell';
+  el.dataset.cell = c.id;
+  const head = document.createElement('div');
+  head.className = 'resolve-head';
+  const title = document.createElement('span');
+  title.className = 'cell-name';
+  title.textContent = c.id;
+  const what = document.createElement('span');
+  what.className = 'resolve-what';
+  head.append(title, what);
+  el.append(head);
+  const pick = (choice: CellChoice, chosen: HTMLElement) => {
+    choices[c.id] = choice;
+    for (const b of el.querySelectorAll('.resolve-choices button')) b.setAttribute('aria-pressed', String(b === chosen));
+    refresh();
+  };
+  const choicesRow = document.createElement('div');
+  choicesRow.className = 'resolve-choices';
+  if (c.kind === 'differs') {
+    what.textContent = c.base === null ? 'changed on both sides' : 'changed on both sides since their common version';
+    const sides = document.createElement('div');
+    sides.className = 'resolve-sides';
+    for (const [label, text] of [[`ours (${oursName})`, c.ours], [`theirs (${theirsName})`, c.theirs]] as const) {
+      const col = document.createElement('div');
+      const h = document.createElement('div');
+      h.className = 'resolve-label';
+      h.textContent = label;
+      const pre = document.createElement('pre');
+      pre.textContent = text;
+      col.append(h, pre);
+      sides.append(col);
+    }
+    const edit = document.createElement('textarea');
+    edit.className = 'resolve-edit';
+    edit.hidden = true;
+    edit.spellcheck = false;
+    edit.value = c.ours;
+    edit.rows = Math.min(16, c.ours.split('\n').length + 1);
+    const ours = button('Keep ours', `Use ${oursName}'s version`, () => { edit.hidden = true; pick('ours', ours); });
+    const theirs = button('Keep theirs', `Use ${theirsName}'s version`, () => { edit.hidden = true; pick('theirs', theirs); });
+    const write = button('Write it…', 'Write the cell yourself, starting from ours', () => { edit.hidden = false; pick({ text: edit.value }, write); edit.focus(); });
+    edit.addEventListener('input', () => (choices[c.id] = { text: edit.value }));
+    choicesRow.append(ours, theirs, write);
+    el.append(sides, choicesRow, edit);
+  } else if (c.kind !== 'same') {
+    const side = c.kind === 'ours-only' ? `ours (${oursName})` : `theirs (${theirsName})`;
+    const other = c.kind === 'ours-only' ? 'theirs' : 'ours';
+    what.textContent = c.base === null ? `only in ${side}` : `only in ${side}: ${other} removed it`;
+    const pre = document.createElement('pre');
+    pre.textContent = c.text;
+    const keep = button('Keep', 'Keep this cell', () => pick('keep', keep));
+    const drop = button('Drop', 'Leave this cell out', () => pick('drop', drop));
+    keep.setAttribute('aria-pressed', 'true');
+    choicesRow.append(keep, drop);
+    el.append(pre, choicesRow);
+  }
+  return el;
 }
 
 /** Leaves the folder's notebook (another notebook was opened): the folder stays open. */
@@ -995,7 +1115,10 @@ $('#open').addEventListener('click', async () => {
   if (!file) return;
   clearUrlParams();
   leaveFolderFile();
-  await load(await file.text(), file.name.replace(/(\.nb)?\.ts$/, ''));
+  const text = await file.text();
+  const name = file.name.replace(/(\.nb)?\.ts$/, '');
+  if (hasConflictMarkers(text)) await showResolver(text, name);
+  else await load(text, name);
 });
 $('#save').addEventListener('click', async () => {
   await flush();

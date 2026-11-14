@@ -24,6 +24,9 @@ await build({
   },
   bundle: true,
   format: 'esm',
+  // Code loaded on first use (the graph view) goes in chunks/.
+  splitting: true,
+  chunkNames: 'chunks/[name]-[hash]',
   target: 'es2022',
   outdir: out,
   sourcemap: true,

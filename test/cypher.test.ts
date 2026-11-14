@@ -209,3 +209,30 @@ test('examples/network.nb.ts: an action builds the graph from a table; Cypher an
     k.close();
   }
 });
+
+test("the kernel sends the graph's vocabulary when it changes, and a new notebook starts without one", async () => {
+  const { MessageChannel } = await import('node:worker_threads');
+  const { serveKernel } = await import('smaltnb/kernel');
+  const { KernelClient } = await import('smaltnb/client');
+  const { port1, port2 } = new MessageChannel();
+  serveKernel(port2 as never, { ts, database: () => Database.openMemory(), graph });
+  const seen: unknown[] = [];
+  const k = new KernelClient(() => ({
+    postMessage: (m) => port1.postMessage(m),
+    addEventListener: (_t, l) => port1.addEventListener('message', (e) => l({ data: (e as MessageEvent).data })),
+    terminate: () => { port1.close(); port2.close(); },
+  }), { onGraph: (v) => seen.push(v) });
+  try {
+    await k.open(header + `action('add');\nawait cypher.run\`CREATE (:City {name: 'Oslo'})-[:NEAR]->(:City {name: 'Bergen'})\`;\n`);
+    await k.runAll();
+    assert.equal(k.graph, null, 'nothing has used Cypher yet');
+    await k.run(['add']);
+    assert.deepEqual(k.graph, { labels: ['City'], types: ['NEAR'], properties: ['name'] });
+    await k.run(['add']);
+    assert.equal(seen.length, 1, 'sent again only when it changes');
+    await k.open(header + `cell('none');\nexport const none = 1;\n`);
+    assert.equal(k.graph, null);
+  } finally {
+    k.close();
+  }
+});

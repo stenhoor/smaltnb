@@ -4,6 +4,7 @@
 // TypeScript, and Source shows the whole file.
 import { Editor, typescriptLanguage } from 'smaltkit/editor';
 import { splitStatements } from 'smaltkit/sql';
+import { splitCypher } from 'smaltkit/cypher';
 import { exportRows, Grid, type GridRow } from 'smaltkit/grid';
 import { download, fileName, pickFile, toast } from 'smaltkit/dom';
 import { KernelClient } from '../src/client.js';
@@ -11,6 +12,7 @@ import type { CellView, NotebookView } from '../src/kernel.js';
 import type { ParamInfo } from '../src/params.js';
 import { sqlBody, type SqlView } from '../src/format.js';
 import { sqlCellLanguage } from './sql-language.js';
+import { cypherCellLanguage } from './cypher-language.js';
 import { markdownLanguage } from './md-language.js';
 import { markdown } from 'smaltkit/markdown';
 import { drawGraph, updateGraphNode } from './graph-view.js';
@@ -19,6 +21,8 @@ import { diffLines, type GitCommit } from 'smaltkit/git';
 import { blameLines, cellChanges, type CellChange } from '../src/history.js';
 import { conflictSides, defaultChoice, hasConflictMarkers, mergeCells, resolveCells, type CellChoice, type MergeCell, type SideCell } from '../src/conflicts.js';
 import { choiceControl } from 'smaltkit/controls';
+import type { GraphView } from 'smaltkit/graph';
+import type { GraphOutput } from '../src/runtime.js';
 import type { ControlInfo } from '../src/ui.js';
 import { areaChart, barChart, chartData, columnChart, donutChart, lineChart, pieChart, scatterChart, type ChartColumn, type ChartContext } from 'smaltkit/charts';
 import type { ChartOutput } from '../src/chart.js';
@@ -93,18 +97,20 @@ function split(src: string, nb: NotebookView): { id: string; text: string; start
   return nb.cells.map((c, i) => ({ id: c.id, start: starts[i]!, text: src.slice(starts[i]!, i + 1 < starts.length ? starts[i + 1]! : src.length) }));
 }
 
-/** The plain views the page shows. Plain Cypher cells show as TypeScript until the page has a Cypher editor. */
-type PageView = Exclude<SqlView, { kind: 'cypher' | 'cypher-script' }>;
-
-/** What a plain SQL cell's editor shows: the query, or an action's statements, each ending in a semicolon. */
-function sqlText(view: PageView): string {
+/** What a plain cell's editor shows: the query, or an action's statements, each ending in a semicolon. */
+function sqlText(view: SqlView): string {
   if (view.kind === 'md') return view.text.trim();
-  return view.kind === 'query' ? view.text.trim() : view.statements.map((st) => `${st.trim()};`).join('\n\n');
+  if (view.kind === 'query' || view.kind === 'cypher') return view.text.trim();
+  return view.statements.map((st) => `${st.trim()};`).join('\n\n');
 }
 
+const isCypher = (view: SqlView | null | undefined) => view?.kind === 'cypher' || view?.kind === 'cypher-script';
+
 /** A plain SQL cell's view with the SQL from its editor. */
-function withSql(view: PageView, text: string): PageView {
+function withSql(view: SqlView, text: string): SqlView {
   if (view.kind === 'md') return { kind: 'md', text };
+  if (view.kind === 'cypher') return { ...view, text };
+  if (view.kind === 'cypher-script') return { kind: 'cypher-script', statements: splitCypher(text).map((st) => st.sql) };
   return view.kind === 'query'
     ? { ...view, text }
     : { kind: 'script', statements: splitStatements(text).map((st) => st.sql) };
@@ -151,7 +157,6 @@ graphButton.addEventListener('click', () => {
 let forceRender = false;
 
 function onNotebook(nb: NotebookView) {
-  nb = { ...nb, cells: nb.cells.map((c) => (c.sql && (c.sql.kind === 'cypher' || c.sql.kind === 'cypher-script') ? { ...c, sql: null } : c)) };
   const before = notebook;
   notebook = nb;
   const next = split(source, nb);
@@ -295,17 +300,19 @@ function render() {
     const change = document.createElement('span');
     change.className = 'change';
     head.append(title, kind, change, status, reason, actions);
-    if (meta.sql) head.append(toggle(chunk.id, meta.sql.kind === 'md'));
+    if (meta.sql) head.append(toggle(chunk.id, meta.sql.kind === 'md' ? 'md' : isCypher(meta.sql) ? 'cypher' : 'sql'));
     const edHost = document.createElement('div');
     edHost.className = 'cell-editor';
     // A plain SQL cell shows its SQL; its cell() line is kept as written and the rest is written back from the SQL.
-    const view = meta.sql && !showTs.has(chunk.id) ? (meta.sql as PageView) : null; // Cypher views are dropped in onNotebook
+    const view = meta.sql && !showTs.has(chunk.id) ? meta.sql : null;
     const head0 = view && meta.body ? chunk.text.slice(0, meta.body.start - chunk.start).trimEnd() : chunk.text.trimEnd();
     if (view) root.classList.add('sql-view');
     const editor = new Editor(edHost, {
-      language: view ? (view.kind === 'md' ? markdownLanguage : sqlCellLanguage) : typescriptLanguage,
+      language: view ? (view.kind === 'md' ? markdownLanguage : isCypher(view) ? cypherCellLanguage : sqlCellLanguage) : typescriptLanguage,
       value: view ? sqlText(view) : chunk.text.replace(/\n+$/, ''),
-      label: view ? `SQL of cell ${chunk.id}` : `Cell ${chunk.id}`,
+      label: view ? `${isCypher(view) ? 'Cypher' : view.kind === 'md' ? 'Markdown' : 'SQL'} of cell ${chunk.id}` : `Cell ${chunk.id}`,
+      // Cypher completion: the notebook graph's labels, relationship types and property keys, as the kernel last sent them.
+      ...(isCypher(view) && { schema: () => ({ names: new Set<string>(), tables: new Map(), ...(kernel.graph && { graph: kernel.graph }) }) }),
       onChange: () => edited(),
       keys: {
         'Mod+Enter': () => void runCells([chunk.id]),
@@ -378,10 +385,11 @@ function currentSource(): string {
 }
 
 /** The TS / SQL switch on a plain SQL cell. */
-function toggle(id: string, isText: boolean): HTMLButtonElement {
+function toggle(id: string, lang: 'md' | 'sql' | 'cypher'): HTMLButtonElement {
   const showing = showTs.has(id);
-  const back = isText ? 'MD' : 'SQL';
-  const b = button(showing ? back : 'TS', showing ? `Show the ${isText ? 'Markdown' : 'SQL'}` : 'Show the TypeScript this cell is saved as', async () => {
+  const back = lang === 'md' ? 'MD' : lang === 'cypher' ? 'CYPHER' : 'SQL';
+  const name = lang === 'md' ? 'Markdown' : lang === 'cypher' ? 'Cypher' : 'SQL';
+  const b = button(showing ? back : 'TS', showing ? `Show the ${name}` : 'Show the TypeScript this cell is saved as', async () => {
     await flush();
     if (showing) showTs.delete(id);
     else showTs.add(id);
@@ -555,22 +563,54 @@ function showOutput(c: CellUi, s: CellView) {
   const out = s.output;
   if (out.kind === 'table') {
     const { table, preview } = out;
-    const box = document.createElement('div');
-    box.className = 'table';
-    box.style.height = `${Math.min(table.rowCount, 12) * 26 + 32}px`;
-    const foot = document.createElement('div');
-    foot.className = 'table-foot';
-    const count = document.createElement('span');
-    count.textContent = `${table.rowCount.toLocaleString()} row${table.rowCount === 1 ? '' : 's'} · ${table.columns.length} column${table.columns.length === 1 ? '' : 's'}`;
-    foot.append(count, button('Download CSV', 'Download every row as CSV', () => void downloadCsv(c.id, table.columns, table.rowCount)));
-    c.output.append(box, foot);
-    c.grid = new Grid(box, { emptyText: 'No rows' });
-    c.grid.setSource({
-      columns: table.columns.map((name, i) => ({ name, type: table.columnTypes[i] ?? null })),
-      rowCount: table.rowCount,
-      initial: preview.rows as GridRow[],
-      fetch: async (offset, limit) => (await kernel.rows(c.id, offset, limit)).rows as GridRow[],
-    });
+    const tablePane = document.createElement('div');
+    const showTable = () => {
+      if (c.grid) return;
+      const box = document.createElement('div');
+      box.className = 'table';
+      box.style.height = `${Math.min(table.rowCount, 12) * 26 + 32}px`;
+      const foot = document.createElement('div');
+      foot.className = 'table-foot';
+      const count = document.createElement('span');
+      count.textContent = `${table.rowCount.toLocaleString()} row${table.rowCount === 1 ? '' : 's'} · ${table.columns.length} column${table.columns.length === 1 ? '' : 's'}`;
+      foot.append(count, button('Download CSV', 'Download every row as CSV', () => void downloadCsv(c.id, table.columns, table.rowCount)));
+      tablePane.append(box, foot);
+      c.grid = new Grid(box, { emptyText: 'No rows' });
+      c.grid.setSource({
+        columns: table.columns.map((name, i) => ({ name, type: table.columnTypes[i] ?? null })),
+        rowCount: table.rowCount,
+        initial: preview.rows as GridRow[],
+        fetch: async (offset, limit) => (await kernel.rows(c.id, offset, limit)).rows as GridRow[],
+      });
+    };
+    if (!out.graph) {
+      c.output.append(tablePane);
+      showTable();
+      return;
+    }
+    // A Cypher result with nodes: drawn as a graph, with the rows a tab away.
+    const graphPane = document.createElement('div');
+    graphPane.className = 'graph-out';
+    const tabs = document.createElement('div');
+    tabs.className = 'output-tabs';
+    tabs.setAttribute('role', 'tablist');
+    const tab = (label: string, pane: HTMLElement, onShow: () => void) => {
+      const b = button(label, `Show the result as a ${label.toLowerCase()}`, () => select(b, pane, onShow));
+      b.setAttribute('role', 'tab');
+      return b;
+    };
+    const select = (b: HTMLButtonElement, pane: HTMLElement, onShow: () => void) => {
+      for (const t of tabs.children) t.setAttribute('aria-selected', String(t === b));
+      graphPane.hidden = pane !== graphPane;
+      tablePane.hidden = pane !== tablePane;
+      onShow();
+    };
+    const graphTab = tab('Graph', graphPane, () => {});
+    const tableTab = tab('Table', tablePane, showTable);
+    tabs.append(graphTab, tableTab);
+    c.output.append(tabs, graphPane, tablePane);
+    select(graphTab, graphPane, () => {});
+    void showGraphOutput(c, graphPane, out.graph, () => select(tableTab, tablePane, showTable));
     return;
   }
   if (out.kind === 'chart') {
@@ -590,6 +630,56 @@ function showOutput(c: CellUi, s: CellView) {
     pre.textContent = out.kind === 'text' ? out.text : show(out.value);
     c.output.append(pre);
   }
+}
+
+/**
+ * Draws a Cypher result's nodes and relationships with smaltkit/graph (WebGPU). Where the browser has no WebGPU, says
+ * so and shows the table instead (`fallback`).
+ */
+async function showGraphOutput(c: CellUi, pane: HTMLElement, g: GraphOutput, fallback: () => void) {
+  const drawn = c.drawn;
+  const canvas = document.createElement('canvas');
+  canvas.className = 'graph-canvas';
+  canvas.setAttribute('aria-label', `A graph of ${g.nodes.length} node${g.nodes.length === 1 ? '' : 's'} and ${g.relationships.length} relationship${g.relationships.length === 1 ? '' : 's'}`);
+  const foot = document.createElement('div');
+  foot.className = 'table-foot';
+  const info = document.createElement('span');
+  info.className = 'graph-info';
+  const total = `${g.nodeCount.toLocaleString()} node${g.nodeCount === 1 ? '' : 's'} · ${g.relationshipCount.toLocaleString()} relationship${g.relationshipCount === 1 ? '' : 's'}`;
+  info.textContent = g.nodeCount > g.nodes.length ? `${total}: the first ${g.nodes.length.toLocaleString()} nodes are drawn` : total;
+  foot.append(info);
+  pane.append(canvas, foot);
+  let view: GraphView;
+  // The graph view (WebGPU, with its shaders) loads only when a result is drawn.
+  const { createGraphView, GpuUnavailableError, resultsToGraph } = await import('smaltkit/graph');
+  try {
+    view = await createGraphView(canvas, { theme: 'css', labels: true });
+  } catch (err) {
+    if (c.drawn !== drawn) return;
+    const p = document.createElement('p');
+    p.className = 'graph-none';
+    p.textContent = err instanceof GpuUnavailableError
+      ? "This browser can't draw graphs (it has no WebGPU): the result is in the table."
+      : `The graph can't be drawn: ${err instanceof Error ? err.message : String(err)}`;
+    pane.replaceChildren(p);
+    fallback();
+    return;
+  }
+  if (c.drawn !== drawn) { view.destroy(); return; }
+  const { graph, nodes, relationships } = resultsToGraph([g.nodes, g.relationships]);
+  view.setGraph(graph);
+  view.fit();
+  view.onHover((hit) => {
+    if (!hit) { info.textContent = total; return; }
+    const v = hit.kind === 'node' ? nodes[hit.index] : relationships[hit.index];
+    if (!v) return;
+    const props = Object.entries(v.properties).map(([k, x]) => `${k}: ${JSON.stringify(x)}`).join(', ');
+    info.textContent = v.kind === 'node' ? `(${v.labels.map((l) => `:${l}`).join('')} {${props}})` : `[:${v.type} {${props}}]`;
+  });
+  const ro = new ResizeObserver(() => view.resize());
+  ro.observe(canvas);
+  const before = c.unobserve;
+  c.unobserve = () => { before?.(); ro.disconnect(); view.destroy(); };
 }
 
 const RENDER: Record<ChartOutput['kind'], (ctx: ChartContext) => void> = {
@@ -1091,18 +1181,30 @@ async function load(src: string, name: string, params: Record<string, string> = 
   await kernel.runAll().catch((err: Error) => toast(err.message, 'error'));
 }
 
-function addCell(kind: 'cell' | 'action' | 'sql' | 'md') {
-  const prefix = kind === 'sql' ? 'query' : kind === 'md' ? 'text' : kind;
+/** The source with `name` imported from smaltnb: added to its import from 'smaltnb', or a new import at the top. */
+function withSmaltnbImport(src: string, name: string): string {
+  const m = /import\s*\{([^}]*)\}\s*from\s*'smaltnb';/.exec(src);
+  if (!m) return `import { ${name} } from 'smaltnb';\n${src}`;
+  const names = m[1]!.split(',').map((n) => n.trim()).filter(Boolean);
+  if (names.includes(name)) return src;
+  return src.slice(0, m.index) + `import { ${[...names, name].join(', ')} } from 'smaltnb';` + src.slice(m.index + m[0].length);
+}
+
+function addCell(kind: 'cell' | 'action' | 'sql' | 'md' | 'cypher') {
+  const prefix = kind === 'sql' ? 'query' : kind === 'md' ? 'text' : kind === 'cypher' ? 'graph' : kind;
   const ids = new Set(chunks.map((c) => c.id));
   let n = chunks.length;
   while (ids.has(`${prefix}${n}`)) n++;
   const id = `${prefix}${n}`;
   const added = kind === 'md'
     ? `cell('${id}', { lang: 'md' });\n${sqlBody({ kind: 'md', text: 'Write here: **Markdown**.' })}`
+    : kind === 'cypher'
+    ? `cell('${id}', { lang: 'cypher' });\n${sqlBody({ kind: 'cypher', name: id, exported: true, text: 'MATCH (n) RETURN n LIMIT 25', output: true })}`
     : kind === 'sql'
     ? `cell('${id}', { lang: 'sql' });\n${sqlBody({ kind: 'query', name: id, exported: true, rowType: null, text: 'SELECT 1 AS one', output: true })}`
     : `${kind}('${id}');`;
-  source = currentSource() + `\n${added}\n`;
+  const needs = kind === 'action' ? ['action'] : kind === 'cell' ? ['cell'] : ['cell', kind];
+  source = needs.reduce(withSmaltnbImport, currentSource()) + `\n${added}\n`;
   save();
   void saveToFolder();
   void kernel.update(source);
@@ -1120,6 +1222,7 @@ $('#add-cell').addEventListener('click', () => addCell('cell'));
 $('#add-action').addEventListener('click', () => addCell('action'));
 $('#add-sql').addEventListener('click', () => addCell('sql'));
 $('#add-md').addEventListener('click', () => addCell('md'));
+$('#add-cypher').addEventListener('click', () => addCell('cypher'));
 const sourceButton = $<HTMLButtonElement>('#source');
 sourceButton.addEventListener('click', async () => {
   await flush();

@@ -2,6 +2,7 @@
 // and replaces the worker when a run has to be stopped. Imports only types from the kernel, so a page loads neither
 // the runtime nor the TypeScript compiler.
 
+import type { GraphVocabulary } from './cypher.js';
 import type { CellView, NotebookView, Reply, Request } from './kernel.js';
 import type { Rows } from './database.js';
 import type { ParamInfo } from './params.js';
@@ -20,6 +21,8 @@ export interface KernelClientOptions {
   onNotebook?: (notebook: NotebookView) => void;
   /** Called with the notebook's parameters whenever they change. */
   onParams?: (params: ParamInfo[]) => void;
+  /** Called with the notebook's graph (labels, relationship types, property keys) when it changes: Cypher completion. */
+  onGraph?: (vocabulary: GraphVocabulary) => void;
   /**
    * Reads a notebook the open one imports (`./orders.nb.ts`), by its path relative to the open notebook's folder. Without
    * it, a notebook import fails in the kernel with a message.
@@ -40,6 +43,7 @@ export class KernelClient {
   #source: string | null = null;
   #fileName: string | undefined;
   #params: ParamInfo[] = [];
+  #graph: GraphVocabulary | null = null;
   #paramValues: Record<string, string> = {};
   #controlValues: Record<string, Record<number, unknown>> = {};
 
@@ -62,6 +66,11 @@ export class KernelClient {
   }
 
   /** The notebook's parameters, as last reported. */
+  /** The open notebook's graph, as Cypher completion knows it: null until a cell has used Cypher. */
+  get graph(): GraphVocabulary | null {
+    return this.#graph;
+  }
+
   get params(): ParamInfo[] {
     return this.#params;
   }
@@ -74,6 +83,7 @@ export class KernelClient {
     this.#controlValues = {};
     this.#states.clear();
     this.#params = [];
+    this.#graph = null;
     return this.#send({ type: 'open', source, params, ...(fileName !== undefined && { fileName }), ...(this.#options.readNotebook && { readsNotebooks: true }) });
   }
 
@@ -130,6 +140,7 @@ export class KernelClient {
     this.#pending.clear();
     for (const p of waiting) p.reject(new Error('The kernel was restarted.'));
     this.#start();
+    this.#graph = null; // the new kernel's graph is empty
     for (const s of this.#states.values()) {
       this.#setState({ ...s, status: 'idle', reason: 'the kernel was restarted', output: { kind: 'none' }, error: null });
     }
@@ -186,6 +197,10 @@ export class KernelClient {
       case 'params':
         this.#params = reply.params;
         this.#options.onParams?.(reply.params);
+        return;
+      case 'graph':
+        this.#graph = reply.vocabulary;
+        this.#options.onGraph?.(reply.vocabulary);
         return;
       case 'done':
       case 'failed': {

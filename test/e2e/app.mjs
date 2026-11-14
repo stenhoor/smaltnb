@@ -17,7 +17,10 @@ const { chromium } = createRequire(import.meta.url)('playwright');
 const port = 8091;
 execFileSync('node', ['scripts/build-app.mjs', 'dist-app'], { stdio: 'inherit' });
 const server = spawn('node', ['scripts/serve-app.mjs', 'dist-app', String(port)], { stdio: 'ignore' });
-const browser = await chromium.launch();
+// WebGPU through SwiftShader, so a Cypher result's graph is drawn (smaltkit/graph), as smaltcy's browser tests run it.
+const browser = await chromium.launch({
+  args: ['--enable-unsafe-webgpu', '--enable-gpu', '--use-gl=angle', '--use-angle=swiftshader', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--enable-unsafe-swiftshader'],
+});
 let failed = false;
 
 const step = async (name, fn) => {
@@ -449,6 +452,7 @@ try {
     const saved = await page.evaluate(async () => (await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('hist-repo')).getFileHandle('shop.nb.ts')).getFile()).text());
     assert.match(saved, /param\.number\(1\)/);
     await page.click('#demo');
+    await page.waitForSelector('[data-cell="revenueChart"]'); // the demo's own cell: the demo has loaded
     await until('byRegion', 'ok');
     await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
   });
@@ -512,6 +516,7 @@ try {
     assert.match(saved, /param\.number\(5\)/);
     assert.match(saved, /cell\('extra'\)/);
     await page.click('#demo');
+    await page.waitForSelector('[data-cell="revenueChart"]'); // the demo's own cell: the demo has loaded
     await until('byRegion', 'ok');
     await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
   });
@@ -532,11 +537,69 @@ try {
     await page.waitForFunction(() => document.querySelector('#folder')?.textContent === 'imports/');
     assert.deepEqual(await page.$$eval('#folder-file option', (os) => os.map((o) => o.value).filter(Boolean)), ['nb/orders.nb.ts', 'nb/report.nb.ts']);
     await page.selectOption('#folder-file', 'nb/report.nb.ts');
+    // report.nb.ts's cells, not the demo's (which has a byRegion too).
+    await page.waitForFunction(() => [...document.querySelectorAll('.cell')].map((c) => c.dataset.cell).join() === 'setup,byRegion');
     await until('byRegion', 'ok');
     assert.equal(await status('setup'), 'ok');
     assert.equal((await gridRows('byRegion')).length, 4, 'four regions, from orders.nb.ts\'s cleaned orders');
     await page.waitForFunction(() => document.querySelector('#git-status')?.textContent === 'not a git repository');
     await page.click('#demo');
+    await page.waitForSelector('[data-cell="revenueChart"]'); // the demo's own cell: the demo has loaded
+    await until('byRegion', 'ok');
+    await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
+  });
+
+  await step('Cypher: plain Cypher cells with completion; an action builds the graph; a result is drawn, its rows a tab away', async () => {
+    await page.evaluate(async (text) => {
+      const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('graphs', { create: true });
+      const w = await (await root.getFileHandle('network.nb.ts', { create: true })).createWritable();
+      await w.write(text);
+      await w.close();
+      window.showDirectoryPicker = async () => root;
+    }, readFileSync('examples/network.nb.ts', 'utf8'));
+    await page.click('#folder');
+    await page.waitForFunction(() => document.querySelector('#folder')?.textContent === 'graphs/');
+    await page.selectOption('#folder-file', 'network.nb.ts');
+    await page.waitForSelector('[data-cell="placed"]');
+    await until('byRegion', 'ok');
+    // A plain Cypher cell shows its Cypher, highlighted: labels as the graph's objects.
+    assert.equal(await page.getAttribute('[data-cell="byRegion"] textarea', 'aria-label'), 'Cypher of cell byRegion');
+    assert.match(await cellText('byRegion'), /^MATCH \(r:Region\)-\[:PLACED\]->\(o:Order\)/);
+    assert.ok(await page.$('[data-cell="byRegion"] .sk-tk-obj'), 'Region is highlighted as a label');
+    assert.equal(await page.textContent('[data-cell="byRegion"] .view-toggle'), 'TS');
+    assert.equal(await page.getAttribute('[data-cell="Build the graph"] textarea', 'aria-label'), 'Cypher of cell Build the graph');
+    // The graph is empty until the action runs.
+    assert.equal((await gridRows('byRegion')).length, 0);
+    await page.click('[data-cell="Build the graph"] .actions button');
+    await until('Build the graph', 'ok');
+    await page.click('[data-cell="placed"] .actions button');
+    const info = await page.waitForFunction(() => {
+      const t = document.querySelector('[data-cell="placed"] .graph-info')?.textContent ?? '';
+      return /^[1-9][\d,]* nodes · [1-9][\d,]* relationships$/.test(t) ? t : null;
+    }, null, { timeout: 30000 });
+    const [nodes, rels] = (await info.jsonValue()).replace(/,/g, '').match(/\d+/g).map(Number);
+    assert.ok(nodes > rels, 'an Order node per PLACED relationship, and the Region nodes besides');
+    // Drawn with WebGPU: a canvas, no fallback note; the Table tab has the rows.
+    assert.ok(await page.$('[data-cell="placed"] canvas.graph-canvas'));
+    assert.equal(await page.$('[data-cell="placed"] .graph-none'), null);
+    assert.equal(await page.getAttribute('[data-cell="placed"] .output-tabs button >> nth=0', 'aria-selected'), 'true');
+    await page.click('[data-cell="placed"] .output-tabs button:has-text("Table")');
+    await page.waitForFunction(() => document.querySelectorAll('[data-cell="placed"] tbody tr[data-row]').length > 0);
+    assert.equal((await gridRows('placed'))[0].length, 3, 'r, p and o');
+    // Completion: the graph's labels after a colon in a pattern.
+    await page.click('[data-cell="byRegion"] .actions button');
+    await page.waitForFunction(() => document.querySelectorAll('[data-cell="byRegion"] tbody tr[data-row]').length > 0);
+    await setCell('byRegion', 'MATCH (r:');
+    await page.focus('[data-cell="byRegion"] textarea');
+    await page.evaluate(() => { const ta = document.querySelector('[data-cell="byRegion"] textarea'); ta.selectionStart = ta.selectionEnd = ta.value.length; });
+    await page.keyboard.type('Re');
+    await page.waitForFunction(() => {
+      const pop = document.querySelector('[data-cell="byRegion"] .sk-ed-complete');
+      return pop && !pop.hidden && pop.textContent.includes('Region');
+    });
+    await page.keyboard.press('Escape');
+    await page.click('#demo');
+    await page.waitForSelector('[data-cell="revenueChart"]'); // the demo's own cell: the demo has loaded
     await until('byRegion', 'ok');
     await page.evaluate(() => new Promise((resolve) => { const d = indexedDB.deleteDatabase('smaltnb-folder'); d.onsuccess = d.onerror = d.onblocked = resolve; }));
   });

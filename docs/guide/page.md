@@ -95,5 +95,6 @@ smaltty can't read the buffer. The worker starts with the page and gets ready wh
 an error in the cell it is in: a method that doesn't exist (with TypeScript's *Did you mean …?*), an argument too many
 or too few, or of the wrong type. These are warnings: the text is underlined and the line number marked, with the
 message on hover, and the notebook still runs. A cell showing its SQL or Markdown has its warnings in the TS view and in
-Source. The checker reports only what `tsc` reports too, and is quiet about what it doesn't model, so `npm run
+Source. A cell being typed that doesn't parse yet doesn't stop the others being checked: its syntax error is the
+notebook's own (marked on the cell), and the other cells keep their warnings. The checker reports only what `tsc` reports too, and is quiet about what it doesn't model, so `npm run
 typecheck` stays the full check for a notebook in a project.

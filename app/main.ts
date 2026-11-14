@@ -177,7 +177,10 @@ const checkerSetup = () =>
   fetch(new URL('./types.bin', import.meta.url))
     .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`types.bin: ${r.status}`))))
     .then((prepared) => ({ files: {}, packages: TYPE_PACKAGES, prepared, fallback: new URL('./types.json', import.meta.url).href }))
-    .catch(() => fetch(new URL('./types.json', import.meta.url)).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`)))));
+    .catch(() => fetch(new URL('./types.json', import.meta.url)).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`)))))
+    // Checked through syntax errors (smaltty 0.14.0): a cell that doesn't parse is set aside and the other cells are
+    // still checked. Its syntax error is the notebook's own diagnostic (parseNotebook), so the checker's is not shown.
+    .then((setup) => ({ ...setup, syntax: 'tolerant' as const }));
 const loadChecker = () =>
   (checker ??= checkerSetup()
     .then((setup) => typeCheckWorker(setup, { workerUrl: new URL('./typecheck-worker.js', import.meta.url), warm: true }))
@@ -190,7 +193,7 @@ function typeCheck() {
     .then((c) => c?.check(code))
     .then((warnings) => {
       if (!warnings || currentSource() !== code) return;
-      showWarnings(warnings);
+      showWarnings(warnings.filter((w) => w.code >= 2000)); // syntax errors (codes under 2000) are shown as diagnostics
       document.body.dataset.checked = code; // for the tests: the source whose warnings are shown
     })
     .catch(() => {});

@@ -113,7 +113,10 @@ function db(): Promise<IDBDatabase> {
 async function idb<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const d = await db();
   return new Promise((resolve, reject) => {
-    const req = run(d.transaction('handles', mode).objectStore('handles'));
+    const tx = d.transaction('handles', mode);
+    // Closed when done: an open connection would block deleting the database, and every later open behind it.
+    tx.oncomplete = tx.onerror = tx.onabort = () => d.close();
+    const req = run(tx.objectStore('handles'));
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });

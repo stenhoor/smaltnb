@@ -10,7 +10,7 @@
 //   import { table } from '@smaltdb/df';
 //   serveKernel(self, { ts: smaltty, importModule: (spec) => import(spec), database: () => open('notebook'), frame: table });
 
-import type { GraphEngineModule } from './cypher.js';
+import type { GraphEngineModule, GraphVocabulary } from './cypher.js';
 import { parseNotebook, type Cell, type Diagnostic, type TypeScriptKit } from './format.js';
 import { buildGraph, type Edge } from './graph.js';
 import { createRuntime, type CellState, type GraphOutput, type ModuleLoader, type Runtime } from './runtime.js';
@@ -82,6 +82,8 @@ export type Reply =
   | { type: 'ready' }
   | { type: 'notebook'; notebook: NotebookView }
   | { type: 'params'; params: ParamInfo[] }
+  /** The notebook's graph, for Cypher completion: sent after a request that changed its labels, types or keys. */
+  | { type: 'graph'; vocabulary: GraphVocabulary }
   | { type: 'state'; state: CellView }
   | { type: 'done'; id: number; result?: unknown }
   | { type: 'failed'; id: number; message: string }
@@ -129,6 +131,7 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
     switch (req.type) {
       case 'open':
         fileName = req.fileName;
+        vocabularySent = 'null'; // a new notebook has a new graph
         post({ type: 'notebook', notebook: describe(ts, req.source) });
         runtime = createRuntime(req.source, {
           ts, fileName, importModule: options.importModule,
@@ -160,6 +163,14 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
         return opened().rows(req.cell, req.offset, req.limit, req.name);
     }
   };
+  let vocabularySent = 'null';
+  const sendVocabulary = () => {
+    const v = runtime?.graphVocabulary() ?? null;
+    const key = JSON.stringify(v);
+    if (!v || key === vocabularySent) return;
+    vocabularySent = key;
+    post({ type: 'graph', vocabulary: v });
+  };
   const opened = (): Runtime => {
     if (!runtime) throw new Error('No notebook is open: send open first.');
     return runtime;
@@ -179,7 +190,10 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
     // Notebook changes reach the page in order; runs queue inside the runtime.
     const work = req.type === 'open' || req.type === 'update' ? (queue = queue.then(() => handle(req))) : queue.then(() => handle(req));
     work.then(
-      (result) => post({ type: 'done', id: req.id, ...(result !== undefined && { result }) }),
+      (result) => {
+        sendVocabulary();
+        post({ type: 'done', id: req.id, ...(result !== undefined && { result }) });
+      },
       (err: unknown) => post({ type: 'failed', id: req.id, message: err instanceof Error ? err.message : String(err) }),
     );
   });

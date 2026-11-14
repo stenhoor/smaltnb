@@ -54,11 +54,17 @@ opens a demo notebook over a small `orders` table and runs it.
 - **Row types:** after a SQL cell runs, **Pin types** writes its result's row type into the notebook
   (`sql<{ … }>`); a later run that no longer matches shows **types out of date** and **Update types**. See
   [Row types](./notebooks#row-types).
+- **Cypher cells** (`lang: 'cypher'`) show their Cypher, highlighted, with completion of keywords, functions, and the
+  notebook graph's labels, relationship types and property keys (after a cell has used the graph). **TS** shows the
+  TypeScript, **CYPHER** goes back. A result with nodes or relationships is drawn as a graph, with WebGPU: drag to
+  pan, scroll to zoom, hover a node or relationship for its labels and properties. **Table** shows the rows. Without WebGPU, the page says so and shows the table. Up to 5,000
+  nodes are drawn; the note under the graph says when there were more. See
+  [Cypher and graphs](./notebooks#cypher-and-graphs).
 - **Charts** (`chart.bar(…)` and the others, as a cell's last expression) are drawn below the cell, and again when it
   reruns. A chart of more than 5,000 rows is drawn from the first 5,000, and says so.
 - **Restart** stops a cell that never finishes, by replacing the kernel. The cells' results are lost and the database
   is kept.
-- **+ SQL**, **+ Text**, **+ Cell** and **+ Action** add a SQL cell, a text cell, a TypeScript cell or an action at the end. **Open…** loads a `.nb.ts` file, **Download** saves the notebook
+- **+ SQL**, **+ Text**, **+ Cypher**, **+ Cell** and **+ Action** add a SQL cell, a text cell, a Cypher cell, a TypeScript cell or an action at the end (and import what it needs from smaltnb). **Open…** loads a `.nb.ts` file, **Download** saves the notebook
   as one, and **Demo** brings the demo back.
 
 The notebook you're working on is kept in this browser, and its database in the browser's private storage (OPFS); in
@@ -66,9 +72,8 @@ a private window the database is in memory.
 
 ## Not yet
 
-Completion from a TypeScript language service is planned. Cypher cells run in the page, and their results show as
-tables; a Cypher editor for plain Cypher cells (they show as TypeScript for now) and results drawn as graphs come next.
-See [Status](./status).
+Completion from a TypeScript language service is planned, and so is Cypher highlighted inside `` cypher`…` `` in
+TypeScript cells. See [Status](./status).
 
 ## Run it locally
 

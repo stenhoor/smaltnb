@@ -56,7 +56,7 @@ opens a demo notebook over a small `orders` table and runs it.
   [Row types](./notebooks#row-types).
 - **Cypher cells** (`lang: 'cypher'`) show their Cypher, highlighted, with completion of keywords, functions, and the
   notebook graph's labels, relationship types and property keys (after a cell has used the graph). **TS** shows the
-  TypeScript, **CYPHER** goes back. A result with nodes or relationships is drawn as a graph, with WebGPU: drag to
+  TypeScript, with the Cypher inside `` cypher`…` `` highlighted as Cypher, **CYPHER** goes back. A result with nodes or relationships is drawn as a graph, with WebGPU: drag to
   pan, scroll to zoom, hover a node or relationship for its labels and properties. **Table** shows the rows. Without WebGPU, the page says so and shows the table. Up to 5,000
   nodes are drawn; the note under the graph says when there were more. See
   [Cypher and graphs](./notebooks#cypher-and-graphs).
@@ -72,8 +72,7 @@ a private window the database is in memory.
 
 ## Not yet
 
-Completion from a TypeScript language service is planned, and so is Cypher highlighted inside `` cypher`…` `` in
-TypeScript cells. See [Status](./status).
+Completion from a TypeScript language service is planned. See [Status](./status).
 
 ## Run it locally
 

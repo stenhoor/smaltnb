@@ -567,6 +567,12 @@ try {
     assert.match(await cellText('byRegion'), /^MATCH \(r:Region\)-\[:PLACED\]->\(o:Order\)/);
     assert.ok(await page.$('[data-cell="byRegion"] .sk-tk-obj'), 'Region is highlighted as a label');
     assert.equal(await page.textContent('[data-cell="byRegion"] .view-toggle'), 'TS');
+    // As TypeScript, the Cypher inside cypher`…` is still highlighted as Cypher.
+    await page.click('[data-cell="byRegion"] .view-toggle');
+    await page.waitForFunction(() => document.querySelector('[data-cell="byRegion"] textarea')?.value.includes('cypher`'));
+    assert.ok(await page.$('[data-cell="byRegion"] .sk-tk-k:text-is("MATCH")'), 'MATCH is a Cypher keyword in the TypeScript view');
+    await page.click('[data-cell="byRegion"] .view-toggle');
+    await page.waitForFunction(() => document.querySelector('[data-cell="byRegion"] textarea')?.getAttribute('aria-label') === 'Cypher of cell byRegion');
     assert.equal(await page.getAttribute('[data-cell="Build the graph"] textarea', 'aria-label'), 'Cypher of cell Build the graph');
     // The graph is empty until the action runs.
     assert.equal((await gridRows('byRegion')).length, 0);

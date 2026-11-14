@@ -22,7 +22,7 @@ copy here: lines and roles change, and a copy taken before the change is out of 
 
 ```bash
 npm install            # prepare builds dist/ (tsc -p tsconfig.build.json: TypeScript 6.0.3, which emits)
-npm run deps           # smaltdb, smaltql, smaltdf pinned in packed.json (scripts/fetch-packed.mjs); again after each npm install
+npm run deps           # smaltdb, smaltql, smaltdf, smaltdb-node, smaltcy pinned in packed.json (scripts/fetch-packed.mjs); again after each npm install
 npm run typecheck      # TypeScript 7's tsc (typescript7), strict, no emit, over src/, test/, examples/ and app/ (CI runs it)
 npm test               # build, then node --test test/*.test.ts against the built package
 npm run app            # build the notebook page (scripts/build-app.mjs, esbuild) and serve it on :8090
@@ -49,7 +49,8 @@ npm run docs:dev       # the docs site (VitePress) with live reload; docs:build 
 - No runtime dependencies unless agreed. smaltty, the TypeScript kit, is passed in by the caller (`smaltty` from
   `smaltkit/typescript`), never imported by `src/` except as types.
 - smaltql and smaltdf are reached only through smaltdb's plan layer and language registry, never by importing their
-  internals.
+  internals. smaltcy (Cypher) is the exception until it stores graphs in smaltdb: it is passed in as `graph`
+  (DESIGN.md decision 24).
 - UI that smaltui or smaltbi could use belongs in smaltkit, not here (DESIGN.md decision 20).
 - No app names in user-facing text.
 - **Keep the documents current.** A PR that changes behaviour updates the pages that describe it in the same PR:
@@ -75,4 +76,7 @@ npm run docs:dev       # the docs site (VitePress) with live reload; docs:build 
   (`github:stenhoor/smaltkit#<commit>`) until it is on npm.
 - **smaltdb, smaltql, smaltdf:** what smaltnb needs from them is listed in DESIGN.md. Raise it there as its own issue or
   PR, and note the dependency here.
+- **smaltcy:** Cypher cells run on smaltcy (`@smaltworks/smaltcy`), pinned in `packed.json` and passed to the runtime
+  as `graph`, never imported by `src/` except as types. Graphs are in memory until smaltcy stores them in smaltdb
+  (DESIGN.md decision 24).
 - **smalt-brand:** colours come from the brand tokens, never hand-picked hex values. The mark is the Pencil.

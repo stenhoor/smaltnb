@@ -57,8 +57,8 @@ export interface Cell {
   /** The cell's last expression statement, shown as its output; null when the cell does not end with one. */
   output: Span | null;
   /**
-   * A plain SQL cell (`lang: 'sql'` holding only SQL) or Markdown cell (`lang: 'md'` holding only md`…`), as its SQL
-   * or Markdown: what an editor shows instead of the TypeScript. Null when the cell holds anything more.
+   * A plain SQL cell (`lang: 'sql'` holding only SQL), Cypher cell (`lang: 'cypher'` holding only Cypher) or Markdown
+   * cell (`lang: 'md'` holding only md`…`), as its SQL, Cypher or Markdown: what an editor shows instead of the TypeScript. Null when the cell holds anything more.
    * `sqlBody(view)` writes the code back.
    */
   sql: SqlView | null;
@@ -69,12 +69,16 @@ export interface Cell {
  * - `query`: a cell `name` that is `[export] const name = sql<Row>`…`;`, optionally followed by `name;` (show it).
  * - `script`: an action whose code is only `await exec`…`;` statements.
  * - `md`: a `lang: 'md'` cell whose code is only `md`…`;`, shown rendered.
- * `text` and `statements` are the SQL or Markdown as written, with `${…}` kept.
+ * - `cypher`: a `lang: 'cypher'` cell `name` that is `[export] const name = cypher`…`;`, optionally followed by `name;`.
+ * - `cypher-script`: a `lang: 'cypher'` action whose code is only `await cypher.run`…`;` statements.
+ * `text` and `statements` are the SQL, Cypher or Markdown as written, with `${…}` kept.
  */
 export type SqlView =
   | { kind: 'query'; name: string; exported: boolean; rowType: string | null; text: string; output: boolean }
   | { kind: 'script'; statements: string[] }
-  | { kind: 'md'; text: string };
+  | { kind: 'md'; text: string }
+  | { kind: 'cypher'; name: string; exported: boolean; text: string; output: boolean }
+  | { kind: 'cypher-script'; statements: string[] };
 
 /** Escapes SQL for a template literal: only a backtick needs it (`${…}` stays a reference). */
 export function escapeTemplate(sql: string): string {
@@ -89,6 +93,10 @@ export function sqlBody(view: SqlView): string {
       + (view.output ? `\n${view.name};` : '');
   }
   if (view.kind === 'md') return `md\`${escapeTemplate(view.text)}\`;`;
+  if (view.kind === 'cypher') {
+    return `${view.exported ? 'export ' : ''}const ${view.name} = cypher\`${escapeTemplate(view.text)}\`;` + (view.output ? `\n${view.name};` : '');
+  }
+  if (view.kind === 'cypher-script') return view.statements.map((st) => `await cypher.run\`${escapeTemplate(st)}\`;`).join('\n');
   return view.statements.map((st) => `await exec\`${escapeTemplate(st)}\`;`).join('\n');
 }
 
@@ -116,7 +124,7 @@ export interface ParseOptions {
 }
 
 const MODULE = 'smaltnb';
-const LANGS: readonly CellLang[] = ['ts', 'sql', 'df', 'md'];
+const LANGS: readonly CellLang[] = ['ts', 'sql', 'df', 'md', 'cypher'];
 const RUN_MODES: readonly RunMode[] = ['auto', 'lazy', 'manual'];
 const STORES: readonly ResultStore[] = ['memory', 'opfs'];
 const CELL_OPTIONS = ['lang', 'run', 'when', 'store', 'live', 'hide'];
@@ -172,7 +180,7 @@ export function parseNotebook(source: string, ts: TypeScriptKit, options: ParseO
     for (const spec of importSpecifiers(t, ts, st)) {
       const imported = spec.imported;
       if (imported === 'cell' || imported === 'action') markers.set(spec.local, imported);
-      if ((imported === 'sql' || imported === 'exec' || imported === 'md') && spec.local === imported) sqlTags.add(imported);
+      if ((imported === 'sql' || imported === 'exec' || imported === 'md' || imported === 'cypher') && spec.local === imported) sqlTags.add(imported);
     }
   }
   const markerOf = (st: number): { kind: 'cell' | 'action'; call: number } | null => {
@@ -434,12 +442,14 @@ export function parseNotebook(source: string, ts: TypeScriptKit, options: ParseO
 
   /** The cell as plain SQL, if its code is exactly what `sqlBody` writes for it (so nothing is lost writing it back). */
   function sqlViewOf(kind_: CellKind, sts: number[], cell: Cell, from: number, to: number): SqlView | null {
-    if ((cell.lang !== 'sql' && cell.lang !== 'md') || kind_ === 'setup') return null;
-    const sqlOf = (e: number, tag: 'sql' | 'exec' | 'md') => {
+    if ((cell.lang !== 'sql' && cell.lang !== 'md' && cell.lang !== 'cypher') || kind_ === 'setup') return null;
+    const sqlOf = (e: number, tag: 'sql' | 'exec' | 'md' | 'cypher' | 'cypher.run') => {
       if (kind(e) !== K.TaggedTemplateExpression) return null;
       const parts = children(e);
       const tagNode = parts[0]!;
-      if (kind(tagNode) !== K.Identifier || text(tagNode) !== tag || !sqlTags.has(tag)) return null;
+      const base = tag === 'cypher.run' ? 'cypher' : tag;
+      if (text(tagNode) !== tag || !sqlTags.has(base)) return null;
+      if (kind(tagNode) !== (tag === 'cypher.run' ? K.PropertyAccessExpression : K.Identifier)) return null;
       const template = parts[parts.length - 1]!;
       const typeArgs = parts.slice(1, -1);
       return { text: text(template).slice(1, -1).replace(/\\`/g, '`'), type: typeArgs[0] ? text(typeArgs[0]) : null, args: typeArgs.length };
@@ -451,6 +461,14 @@ export function parseNotebook(source: string, ts: TypeScriptKit, options: ParseO
       const m = sqlOf(t.first[only]!, 'md');
       if (!m || m.args) return null;
       view = { kind: 'md', text: m.text };
+    } else if (cell.lang === 'cypher' && kind_ === 'action') {
+      const statements: string[] = [];
+      for (const st of sts) {
+        const e = kind(st) === K.ExpressionStatement && kind(t.first[st]!) === K.AwaitExpression ? sqlOf(t.first[t.first[st]!]!, 'cypher.run') : null;
+        if (!e || e.args) return null;
+        statements.push(e.text);
+      }
+      view = { kind: 'cypher-script', statements };
     } else if (kind_ === 'cell') {
       const [decl, show, ...rest] = sts;
       if (!decl || rest.length || kind(decl) !== K.VariableStatement) return null;
@@ -460,11 +478,13 @@ export function parseNotebook(source: string, ts: TypeScriptKit, options: ParseO
       if (d.length !== 1) return null;
       const [nameNode, ...after] = children(d[0]!);
       if (!nameNode || kind(nameNode) !== K.Identifier || text(nameNode) !== cell.id || after.length !== 1 || ts.isTypeNode(kind(after[0]!))) return null;
-      const q = sqlOf(after[0]!, 'sql');
-      if (!q || q.args > 1) return null;
+      const q = sqlOf(after[0]!, cell.lang === 'cypher' ? 'cypher' : 'sql');
+      if (!q || q.args > (cell.lang === 'cypher' ? 0 : 1)) return null;
       if (show && !(kind(show) === K.ExpressionStatement && kind(t.first[show]!) === K.Identifier && text(t.first[show]!) === cell.id)) return null;
       const exported = !!(t.flags[decl]! & F.Export);
-      view = { kind: 'query', name: cell.id, exported, rowType: q.type, text: q.text, output: !!show };
+      view = cell.lang === 'cypher'
+        ? { kind: 'cypher', name: cell.id, exported, text: q.text, output: !!show }
+        : { kind: 'query', name: cell.id, exported, rowType: q.type, text: q.text, output: !!show };
     } else {
       const statements: string[] = [];
       for (const st of sts) {

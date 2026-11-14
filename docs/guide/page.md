@@ -66,7 +66,9 @@ a private window the database is in memory.
 
 ## Not yet
 
-Completion from a TypeScript language service is planned. See [Status](./status).
+Completion from a TypeScript language service is planned. Cypher cells run in the page, and their results show as
+tables; a Cypher editor for plain Cypher cells (they show as TypeScript for now) and results drawn as graphs come next.
+See [Status](./status).
 
 ## Run it locally
 

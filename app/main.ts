@@ -93,14 +93,17 @@ function split(src: string, nb: NotebookView): { id: string; text: string; start
   return nb.cells.map((c, i) => ({ id: c.id, start: starts[i]!, text: src.slice(starts[i]!, i + 1 < starts.length ? starts[i + 1]! : src.length) }));
 }
 
+/** The plain views the page shows. Plain Cypher cells show as TypeScript until the page has a Cypher editor. */
+type PageView = Exclude<SqlView, { kind: 'cypher' | 'cypher-script' }>;
+
 /** What a plain SQL cell's editor shows: the query, or an action's statements, each ending in a semicolon. */
-function sqlText(view: SqlView): string {
+function sqlText(view: PageView): string {
   if (view.kind === 'md') return view.text.trim();
   return view.kind === 'query' ? view.text.trim() : view.statements.map((st) => `${st.trim()};`).join('\n\n');
 }
 
 /** A plain SQL cell's view with the SQL from its editor. */
-function withSql(view: SqlView, text: string): SqlView {
+function withSql(view: PageView, text: string): PageView {
   if (view.kind === 'md') return { kind: 'md', text };
   return view.kind === 'query'
     ? { ...view, text }
@@ -148,6 +151,7 @@ graphButton.addEventListener('click', () => {
 let forceRender = false;
 
 function onNotebook(nb: NotebookView) {
+  nb = { ...nb, cells: nb.cells.map((c) => (c.sql && (c.sql.kind === 'cypher' || c.sql.kind === 'cypher-script') ? { ...c, sql: null } : c)) };
   const before = notebook;
   notebook = nb;
   const next = split(source, nb);
@@ -295,7 +299,7 @@ function render() {
     const edHost = document.createElement('div');
     edHost.className = 'cell-editor';
     // A plain SQL cell shows its SQL; its cell() line is kept as written and the rest is written back from the SQL.
-    const view = meta.sql && !showTs.has(chunk.id) ? meta.sql : null;
+    const view = meta.sql && !showTs.has(chunk.id) ? (meta.sql as PageView) : null; // Cypher views are dropped in onNotebook
     const head0 = view && meta.body ? chunk.text.slice(0, meta.body.start - chunk.start).trimEnd() : chunk.text.trimEnd();
     if (view) root.classList.add('sql-view');
     const editor = new Editor(edHost, {

@@ -59,8 +59,22 @@ md`# Shop analysis
 Revenue by region, for orders of at least ${params.minQty}.`;
 ```
 
+A **plain Cypher cell** is a `lang: 'cypher'` cell in the same two forms: a query named after the cell, or an action of
+`` await cypher.run`…`; `` statements.
+
+```ts
+cell('byRegion', { lang: 'cypher' });
+export const byRegion = cypher`MATCH (r:Region)-[:PLACED]->(o:Order) RETURN r.name AS region, count(o) AS orders`;
+byRegion;
+
+action('Build the graph', { lang: 'cypher' });
+await cypher.run`MATCH (n) DETACH DELETE n`;
+await cypher.run`UNWIND ${orders} AS o CREATE (:Order {id: o.id})`;
+```
+
 `parseNotebook` gives a plain cell's content as `cell.sql` (`{ kind: 'query', name, exported, rowType, text, output }`,
-`{ kind: 'script', statements }` or `{ kind: 'md', text }`), and `sqlBody(view)` writes the code back.
+`{ kind: 'script', statements }`, `{ kind: 'md', text }`, `{ kind: 'cypher', name, exported, text, output }` or
+`{ kind: 'cypher-script', statements }`), and `sqlBody(view)` writes the code back.
 
 ## Options
 
@@ -68,7 +82,7 @@ Options are read from the source without running the notebook, so they must be l
 
 | Option | Values | Cells | Meaning |
 |---|---|---|---|
-| `lang` | `'ts'`, `'sql'`, `'df'`, `'md'` | both | The language the cell is shown and edited in. |
+| `lang` | `'ts'`, `'sql'`, `'df'`, `'md'`, `'cypher'` | both | The language the cell is shown and edited in. |
 | `run` | `'auto'`, `'lazy'`, `'manual'` | `cell` | How the cell reacts when an input changes. |
 | `when` | a function, `() => boolean` | both | A guard: the cell runs only while it returns true. |
 | `store` | `'memory'`, `'opfs'` | `cell` | Where its collected result is kept. |

@@ -153,6 +153,41 @@ with what changed, and **Update types** pins the new one.
 - It's offered on plain SQL cells, which the page writes back. *Planned:* the same for queries in TypeScript cells and
   for smaltdf frames.
 
+## Cypher and graphs
+
+Each notebook has a graph, kept by [smaltcy](https://stenhoor.github.io/smaltcy/) in memory beside its database, and
+`` cypher`…` `` queries it as `` sql`…` `` queries the database:
+
+```ts
+action('Build the graph', { lang: 'cypher' });
+await cypher.run`UNWIND ${orders} AS o
+  MERGE (r:Region {name: o.region})
+  CREATE (r)-[:PLACED]->(:Order {id: o.id, revenue: o.qty * o.price})`;
+
+cell('byRegion', { lang: 'cypher' });
+export const byRegion = cypher`MATCH (r:Region)-[:PLACED]->(o:Order)
+RETURN r.name AS region, sum(o.revenue) AS revenue ORDER BY revenue DESC`;
+
+cell('top', { lang: 'sql' });
+export const top = sql`SELECT region FROM ${byRegion} WHERE revenue > 500`;
+```
+
+- **`` cypher`…` ``** is a query: it runs when its cell finishes, and its result is collected, so later cells read it.
+  **`` cypher.run`…` ``** runs at once and returns the result: for an action that writes in steps.
+- **`${}`** passes a value as a parameter (a number, a string, a list, a map), or another cell's result as its rows, a
+  list of maps: `UNWIND ${orders} AS o` builds a graph from a SQL result. A node passed in becomes its properties.
+- **Writes** (`CREATE`, `MERGE`, `SET`, `REMOVE`, `DELETE`, an index) follow [the same rules](#cells-that-write) as
+  SQL's: in a cell that isn't an action, a write is held until you run the cell.
+- **Results** read from TypeScript as `result.rows` (records by column, with nodes, relationships and paths as objects)
+  and from SQL and smaltdf through `${}`, where a node, a list or a map is JSON text. The page draws a result that
+  holds nodes or relationships as a graph (up to 5,000 nodes).
+- **The graph** lives as long as the notebook is open: a reload or a **Restart** empties it, as it does the collected
+  results, so an action rebuilds it from the database. Notebooks a notebook imports query the same graph.
+- The Cypher is smaltcy's dialect: see its [Cypher reference](https://stenhoor.github.io/smaltcy/). An example:
+  [examples/network.nb.ts](../../examples/network.nb.ts).
+- *Planned:* cells that read the graph go stale after an action writes to it (as for SQL's tables: see
+  [the runtime](./runtime#the-database)), and a graph kept in the database once smaltcy stores graphs in smaltdb.
+
 ## Charts
 
 A `chart.*` call as a cell's last expression shows a chart of a result as the cell's output:

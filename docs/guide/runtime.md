@@ -176,6 +176,30 @@ await exec`INSERT INTO region_totals SELECT * FROM ${byRegion}`;
 - **Outputs** that are collected results reach the page as a table with its first rows; `rows(cell, offset, limit)`
   (and `KernelClient.rows`) fetch more, for a grid that scrolls. The page never holds a whole result.
 
+## The graph
+
+Give the runtime smaltcy as `graph`, and each notebook gets a graph, in memory, that `` cypher`…` `` queries
+([Cypher and graphs](./notebooks#cypher-and-graphs)):
+
+```ts
+import * as smaltcy from '@smaltworks/smaltcy';
+
+const rt = createRuntime(source, { ts, database, frame: table, graph: smaltcy });
+```
+
+- **One graph per notebook,** opened when a cell first uses Cypher and kept while the runtime lives. Notebooks it
+  imports use the same graph. In the kernel, `serveKernel(self, { …, graph: smaltcy })` gives each notebook it opens a
+  new one.
+- **Writes are checked by plan:** smaltcy compiles the statement first, and a plan that creates, merges, sets, removes
+  or deletes (or makes an index) is a write, held in a cell that isn't an action, with the same `held` state as SQL's.
+- **Collected:** a Cypher result a cell defines (and its output) becomes a `GraphResult` (`columns`, `rows` as records,
+  `writes`) and is also collected into a `TEMP` table, `nb_<cell>_<name>`, so SQL and smaltdf read it through `${}`.
+  Its columns take any type, and a node, relationship, path, list or map is stored as JSON text.
+- **Drawn:** an output with nodes or relationships carries them to the page (`state.outputGraph`, and `graph` on the
+  kernel's table output), at most 5,000 nodes with the relationships between them; `nodeCount` says how many there were.
+- **Completion:** `rt.graphVocabulary()` gives the graph's labels, relationship types and property keys.
+- Without `graph`, a Cypher cell fails, saying it needs smaltcy.
+
 *Not yet:* through smaltdb's worker client, SQL text can't be classified until smaltdb reports whether a statement is
 read-only there (in process it does), so until then `exec` counts as a write and a query as a read. Cells that read a
 table an action wrote don't go stale yet: that needs plans to say which tables they read and write. Both are listed

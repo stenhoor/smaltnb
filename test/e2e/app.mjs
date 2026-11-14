@@ -145,6 +145,15 @@ try {
     assert.equal(await allMarks(), 1);
     const line = orders.slice(0, orders.indexOf('.filter(')).split('\n').length;
     assert.equal(await page.evaluate((id) => document.querySelector(`[data-cell="${id}"] .sk-ed-warnline`)?.textContent, 'orders'), String(line));
+    // Another cell half typed (a syntax error): the misspelt method is still marked, and the syntax error is the
+    // notebook's diagnostic, not a second mark.
+    const big = await cellText('bigOrders');
+    await setCell('bigOrders', big.replace(/\s*$/, '\nconst half = ui.slider(\n'));
+    await shown('const half = ui.slider(');
+    assert.deepEqual(await marks('orders'), [['fliter', "Property 'fliter' does not exist on type 'Frame'. Did you mean 'filter'?"]]);
+    assert.equal(await allMarks(), 1);
+    await setCell('bigOrders', big);
+    await shown('const half = ui.slider(', false);
     // Fixed: no marks, and the notebook runs as before.
     await setCell('orders', orders);
     await shown('.fliter(', false);

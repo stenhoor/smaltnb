@@ -3,8 +3,8 @@
 //
 //   smaltnb run regional.nb.ts --param mode=full --actions --db data/orders.db --report run.json --md run.md
 //
-// It needs smaltkit (smaltty reads the TypeScript), smaltdb with smaltql, and smaltdf for frames: smaltnb's optional
-// peer dependencies, loaded here when the command runs, so the library itself loads none of them. With --db it also
+// It needs smaltkit (smaltty reads the TypeScript), smaltdb with smaltql, and smaltdf for frames, and smaltcy for Cypher
+// cells: smaltnb's optional peer dependencies, loaded here when the command runs, so the library itself loads none of them. With --db it also
 // needs @smaltworks/smaltdb-node, the plugin that keeps smaltdb's files on disk; without it the database is in memory.
 // Exit codes: 0 ok, 1 a cell failed, was held or is stale, 2 the command couldn't run.
 //
@@ -17,6 +17,7 @@ import { pathToFileURL } from 'node:url';
 import { reportJson, reportMarkdown, reportText, runNotebook } from 'smaltnb/report';
 import { buildNotebooks } from './build.js';
 import type { TypeScriptKit } from 'smaltnb/format';
+import type { GraphEngineModule } from 'smaltnb/cypher';
 
 const USAGE = `Usage: smaltnb run <notebook.nb.ts> [options]
        smaltnb build <notebook.nb.ts>... [--out <dir>]
@@ -182,6 +183,7 @@ export async function main(argv: string[], io = { out: (s: string) => process.st
     language.registerLanguage(sql.sqlLanguage);
     const df = (await tryImport('@smaltworks/smaltdf', dir)) ?? (await tryImport('@smaltdb/df', dir));
     if (df?.dfLanguage) language.registerLanguage(df.dfLanguage);
+    const graph = (await tryImport('@smaltworks/smaltcy', dir)) as unknown as GraphEngineModule | null;
 
     let database: { exec(sql: string): void; close(): void };
     if (a.db) {
@@ -206,7 +208,7 @@ export async function main(argv: string[], io = { out: (s: string) => process.st
         }
       }
       const report = await runNotebook(source, {
-        ts, fileName: basename(path), database, frame: df?.table, params: a.params, actions: a.actions, reportRows: a.rows,
+        ts, fileName: basename(path), database, frame: df?.table, ...(graph && { graph }), params: a.params, actions: a.actions, reportRows: a.rows,
         // Notebooks it imports (./lib.nb.ts), by their path relative to its folder.
         readNotebook: async (p) => readFileSync(resolve(dir, p), 'utf8'),
         // What the notebook imports resolves from its own folder, then from smaltnb's.

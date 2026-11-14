@@ -39,8 +39,9 @@ ok: 6 cells in 96 ms
   take their defaults.
 - **Imports:** [other notebooks](./notebooks#notebooks-as-libraries) (`./orders.nb.ts`) are read from the notebook's
   folder. Packages are loaded from its folder's `node_modules` first, then from smaltnb's.
-- **Packages:** the command needs smaltkit (which reads the TypeScript), smaltdb, smaltql, and smaltdf for frames:
-  smaltnb's optional peer dependencies, loaded only when the command runs. `--db` also needs smaltdb Node. A missing
+- **Packages:** the command needs smaltkit (which reads the TypeScript), smaltdb, smaltql, and smaltdf for frames, and
+  [smaltcy](https://stenhoor.github.io/smaltcy/) for Cypher cells: smaltnb's optional peer dependencies, loaded only
+  when the command runs. `--db` also needs smaltdb Node. The graph is in memory: an action builds it in the run. A missing
   one is named, with how to install it.
 
 ## In GitHub Actions

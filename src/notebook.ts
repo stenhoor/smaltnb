@@ -2,8 +2,11 @@
 // starts a cell that writes. At run time the notebook runtime reads these from the source (see ./format.js), so the
 // functions themselves do nothing: they exist so a notebook is valid TypeScript, with typed, checked options.
 
-/** The language a cell is shown and edited in. A `df` cell is TypeScript; the editor treats it as dataframe code. */
-export type CellLang = 'ts' | 'sql' | 'df' | 'md';
+/**
+ * The language a cell is shown and edited in. A `df` cell is TypeScript; the editor treats it as dataframe code. A
+ * `cypher` cell holding only a Cypher query shows the Cypher (as a `sql` cell shows its SQL).
+ */
+export type CellLang = 'ts' | 'sql' | 'df' | 'md' | 'cypher';
 
 /**
  * How a cell reacts when its inputs change: `auto` reruns it, `lazy` marks it stale until it is run, `manual` runs

@@ -1,7 +1,9 @@
 // The kernel worker: runs cell code off the page (smaltnb/kernel). It reads and strips TypeScript with smaltty (from
-// smaltkit/typescript, bundled in), opens the notebook's database in its own engine worker, and gives cells smaltdf.
+// smaltkit/typescript, bundled in), opens the notebook's database in its own engine worker, and gives cells smaltdf, and
+// smaltcy for Cypher (a graph per notebook, in this worker's memory).
 import { open } from 'smaltdb';
 import * as df from '@smaltdb/df';
+import { compile, open as openGraph } from '@smaltworks/smaltcy';
 import { smaltty } from 'smaltkit/typescript';
 import { serveKernel, type MessageEndpoint } from '../src/kernel.js';
 import { seedDemo } from './demo-data.js';
@@ -28,4 +30,5 @@ serveKernel(self as unknown as MessageEndpoint, {
   importModule: async (spec) => (spec === '@smaltdb/df' ? (df as unknown as Record<string, unknown>) : import(/* @vite-ignore */ spec)),
   database: openDatabase,
   frame: df.table,
+  graph: { open: () => openGraph(), compile },
 });

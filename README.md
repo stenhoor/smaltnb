@@ -13,8 +13,9 @@
 
 Notebooks are reactive, and run on [smaltdb](https://github.com/stenhoor/smaltdb). A notebook is a TypeScript file: cells are
 top-level code, the graph comes from the names they define and read, and `export` makes a notebook a library other
-notebooks import. TypeScript, SQL ([smaltql](https://github.com/stenhoor/smaltql)) and dataframes
-([smaltdf](https://github.com/stenhoor/smaltdf)) are first-class.
+notebooks import. TypeScript, SQL ([smaltql](https://github.com/stenhoor/smaltql)), dataframes
+([smaltdf](https://github.com/stenhoor/smaltdf)) and Cypher on a graph ([smaltcy](https://github.com/stenhoor/smaltcy))
+are first-class.
 
 Inspired by marimo, Jupyter and JupyterLab.
 
@@ -37,7 +38,8 @@ export const clean = raw.filter(col('qty').gt(0));
 
 | Import | What it does |
 | --- | --- |
-| `smaltnb` | What notebooks import: `cell()`, `action()`, `` sql`…` ``, `` exec`…` `` and `db`; plus everything below. |
+| `smaltnb` | What notebooks import: `cell()`, `action()`, `` sql`…` ``, `` exec`…` ``, `db` and `` cypher`…` ``; plus everything below. |
+| `smaltnb/cypher` | `` cypher`…` `` and `` cypher.run`…` ``: Cypher on the notebook's graph (smaltcy, passed to the runtime as `graph`); `GraphResult`, and `graphPlanWrites(plan)`, which tells a write by its plan. |
 | `smaltnb/format` | `parseNotebook(source, ts)`: splits a `.nb.ts` file into cells, reads their options, and finds the names each defines, reads and exports, with diagnostics (a cell reading a name defined further down, a name assigned outside its cell, bad options, …). |
 | `smaltnb/graph` | `buildGraph(notebook)`: edges, run order, `upstream` / `downstream`, `exportClosure` (what importing an export needs) and `propagate` (what reruns and what goes stale after a change). |
 | `smaltnb/runtime` | `createRuntime(source, { ts, importModule })`: runs cells as async functions, keeps each cell's state (`ok`, `stale`, `skipped`, `error`, …) and output, and reacts to `update(source)`, `run(ids)` and `runAll()` by the notebook's rules. With `readNotebook`, a notebook imports another's exports, running only the cells they need. |

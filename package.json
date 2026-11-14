@@ -37,6 +37,10 @@
       "types": "./dist/chart.d.ts",
       "default": "./dist/chart.js"
     },
+    "./cypher": {
+      "types": "./dist/cypher.d.ts",
+      "default": "./dist/cypher.js"
+    },
     "./report": {
       "types": "./dist/report.d.ts",
       "default": "./dist/report.js"
@@ -108,7 +112,8 @@
     "smaltdb": ">=0.9.0 <0.10.0",
     "smaltql": "*",
     "@smaltdb/df": "*",
-    "@smaltworks/smaltdb-node": "*"
+    "@smaltworks/smaltdb-node": "*",
+    "@smaltworks/smaltcy": "*"
   },
   "peerDependenciesMeta": {
     "smaltkit": {
@@ -124,6 +129,9 @@
       "optional": true
     },
     "@smaltworks/smaltdb-node": {
+      "optional": true
+    },
+    "@smaltworks/smaltcy": {
       "optional": true
     }
   }

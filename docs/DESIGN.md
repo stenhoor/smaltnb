@@ -36,6 +36,7 @@ not aim to be a port of any of them.
 | 21 | Editor | smaltui's dependency-free editor, moved to `smaltkit/editor` and extended to TypeScript. TypeScript is read and stripped by smaltty, our own TypeScript kit, from `smaltkit/typescript` (the owner's decision of 2026-11-08, in smalt-brand DECISIONS.md, "smaltty"; until then the TypeScript compiler was loaded at run time). Types are removed, never compiled: TypeScript's `erasableSyntaxOnly`. |
 | 22 | Charts and tables | `smaltkit/charts`, moved from smaltbi's `src/visuals/`. Two table components for now: `smaltkit/grid` (smaltui's grid) for exploring rows, smaltbi's table and matrix as chart types. |
 | 23 | smaltts | Decided later. Another plan-layer language can join without a format change. |
+| 24 | Cypher | (Owner, 2026-11-14.) Cypher is first-class, on smaltcy: `` cypher`…` `` cells, one graph per notebook in memory beside its database, rebuilt by running (results aren't reloaded: decision 12's store is on hold). smaltcy is pinned and passed to the runtime as `graph` (in core: the page and `smaltnb run` always give it), an exception to "every language goes through smaltdb's plan layer" until smaltcy keeps its graphs in smaltdb (smaltcy ADR 0001, "the hybrid"). Writes are told by smaltcy's plan and held as in decision 8; results are collected as in decision 12, and readable from SQL. The page shows plain Cypher cells in smaltkit's Cypher editor and draws results with nodes as a graph (`smaltkit/graph`), with a Table tab. |
 
 ## A notebook
 
@@ -92,9 +93,10 @@ Each step is one PR.
 
 | Repository | Needed |
 |---|---|
-| smaltkit | In: `editor` and `grid` (from smaltui), `charts` (from smaltbi), `sql`. In stenhoor/smaltkit#6: `controls` and the environment manifest. Still needed: `git`, a reader of git's format (ADR 0032). |
+| smaltkit | In: `editor` and `grid` (from smaltui), `charts` (from smaltbi), `sql`, `controls` and the environment manifest (stenhoor/smaltkit#6), `git`, a reader of git's format (ADR 0032, stenhoor/smaltkit#26), and `cypher` and `graph`, Cypher's editor language and the WebGPU graph view (decision 24). Still needed: Cypher highlighted inside `` cypher`…` `` in TypeScript cells. |
 | smaltdb | Which tables a statement reads and writes (for edges through tables and staleness after a write). In the worker client, a prepared statement's `readonly` and `kind`, as the in-process engine already gives them (plan data carries its kind, so plans are checked today). A change counter like SQLite's `PRAGMA data_version`. Later: writable external tables and an external file-writer plugin. |
 | smaltql | From a parse, without running: statement kind, tables read and written, result columns and types. |
+| smaltcy | In: Cypher compiled to a plan without running it (`compile`), results with nodes and relationships as objects, write counts. Later: graphs stored in smaltdb (the hybrid), so a notebook's graph persists with its database; a plan that says which labels it reads and writes, for staleness. |
 | smaltdf | A plan's kind and the tables it touches. Later: a frame over another language's plan with its types, and a typed `Frame<S>`. |
 
 smaltql and smaltdf are still changing. smaltnb reaches them only through the engine's plan layer and language

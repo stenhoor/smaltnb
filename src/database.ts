@@ -12,8 +12,8 @@ import { quoteIdentifier, type CollectedTable, type ExecResult, type SqlParam, t
 
 /** A write in a cell that may not write now: it is held until the cell is run on request or marked as an action. */
 export class HeldWrite extends Error {
-  constructor(what: string) {
-    super(`${what} writes to the database. Run the cell to let it write, or mark it as an action.`);
+  constructor(what: string, where = 'the database') {
+    super(`${what} writes to ${where}. Run the cell to let it write, or mark it as an action.`);
     this.name = 'HeldWrite';
   }
 }
@@ -173,6 +173,31 @@ export class NotebookDb {
     await this.#create(table, shape.columns, shape.columnTypes);
     await frame.insertInto(this.raw, table);
     return this.#info(table, shape.columns, shape.columnTypes);
+  }
+
+  /**
+   * Collects rows made outside the database (a Cypher result) into a TEMP table: each column takes any type, and a
+   * value that isn't a number, string, boolean or null (a node, a list, a map) is stored as JSON text.
+   */
+  async collectRows(table: string, columns: readonly string[], rows: readonly (readonly unknown[])[]): Promise<CollectedTable> {
+    const types = columns.map(() => 'any');
+    await this.#create(table, [...columns], types);
+    const cell = (v: unknown): SqlParam => (v === null || v === undefined ? null : ['number', 'string', 'boolean', 'bigint'].includes(typeof v) ? (v as SqlParam) : JSON.stringify(v));
+    const width = Math.max(1, columns.length);
+    const per = Math.max(1, Math.floor(500 / width));
+    for (let i = 0; i < rows.length; i += per) {
+      const chunk = rows.slice(i, i + per);
+      const params: SqlParam[] = [];
+      const tuples = chunk.map((r) => `(${columns.map((_, c) => { params.push(cell(r[c])); return `?${params.length}`; }).join(', ')})`);
+      if (columns.length) await this.run(`INSERT INTO temp.${quoteIdentifier(table)} VALUES ${tuples.join(', ')}`, params);
+    }
+    return this.#info(table, [...columns], types);
+  }
+
+  /** Every row of a collected table, as records by column name (a SQL result read by Cypher). */
+  async records(table: string): Promise<Record<string, unknown>[]> {
+    const r = await this.query(`SELECT * FROM temp.${quoteIdentifier(table)}`);
+    return r.rows.map((row) => Object.fromEntries(r.columns.map((c, i) => [c, row[i]])));
   }
 
   /** A window of a collected table's rows. */

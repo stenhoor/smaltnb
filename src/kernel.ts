@@ -10,9 +10,10 @@
 //   import { table } from '@smaltdb/df';
 //   serveKernel(self, { ts: smaltty, importModule: (spec) => import(spec), database: () => open('notebook'), frame: table });
 
+import type { GraphEngineModule } from './cypher.js';
 import { parseNotebook, type Cell, type Diagnostic, type TypeScriptKit } from './format.js';
 import { buildGraph, type Edge } from './graph.js';
-import { createRuntime, type CellState, type ModuleLoader, type Runtime } from './runtime.js';
+import { createRuntime, type CellState, type GraphOutput, type ModuleLoader, type Runtime } from './runtime.js';
 import type { Rows } from './database.js';
 import type { CollectedTable } from './sql.js';
 import { Markdown } from './md.js';
@@ -33,7 +34,7 @@ export type Display =
   | { kind: 'value'; value: unknown }
   | { kind: 'text'; text: string }
   /** A collected result: its table and first rows; fetch more with `rows`. */
-  | { kind: 'table'; table: CollectedTable; preview: Rows }
+  | { kind: 'table'; table: CollectedTable; preview: Rows; /** A Cypher result's nodes and relationships, to draw. */ graph?: GraphOutput }
   /** Markdown text (md`…`), for the page to render. */
   | { kind: 'markdown'; text: string }
   /** A chart (chart.bar(…) and the others): its kind, options, and the rows it draws, for the page to draw. */
@@ -96,6 +97,8 @@ export interface KernelOptions {
   database?: () => unknown | Promise<unknown>;
   /** What later cells read a collected table as: smaltdf's `table`. */
   frame?: (table: string) => object;
+  /** smaltcy, for Cypher cells (`import * as smaltcy from '@smaltworks/smaltcy'`): each notebook opened gets a new graph. */
+  graph?: GraphEngineModule;
 }
 
 /** Serves notebooks on an endpoint: one notebook at a time, replaced by each `open`. */
@@ -130,6 +133,7 @@ export function serveKernel(endpoint: MessageEndpoint, options: KernelOptions): 
         runtime = createRuntime(req.source, {
           ts, fileName, importModule: options.importModule,
           database: options.database ? await openDatabase() : undefined, frame: options.frame,
+          ...(options.graph && { graph: options.graph }),
           onChange: (state) => post({ type: 'state', state: view(state) }),
           params: req.params,
           controls: req.controls,
@@ -189,7 +193,7 @@ export function view(state: CellState): CellView {
     controls: state.controls.map((c) => ({ ...c, ...(c.options && { options: [...c.options] }) })),
     rowType: state.rowType && { ...state.rowType },
     output: state.outputChart && state.runs > 0 ? { kind: 'chart', chart: state.outputChart }
-      : state.outputTable ? { kind: 'table', table: tableInfo(state.outputTable), preview: state.outputTable.preview }
+      : state.outputTable ? { kind: 'table', table: tableInfo(state.outputTable), preview: state.outputTable.preview, ...(state.outputGraph && { graph: state.outputGraph }) }
       : state.hasOutput && state.runs > 0 && state.output instanceof Markdown ? { kind: 'markdown', text: state.output.text }
       : state.hasOutput && state.runs > 0 ? toDisplay(state.output) : { kind: 'none' },
   };

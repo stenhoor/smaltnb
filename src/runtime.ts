@@ -3,18 +3,21 @@
 // notebook's rules: run modes, guards, cells that wait for inputs that aren't current, and edits to the source.
 //
 // With a database, cells get `db`, `sql` and `exec` (./sql.js): queries and smaltdf frames are collected into TEMP
-// tables when their cell finishes, and writes are checked by plan kind (./database.js). No worker or page here: those
-// wrap this. smaltty (the TypeScript kit) is passed in, as for parseNotebook.
+// tables when their cell finishes, and writes are checked by plan kind (./database.js). With smaltcy, cells get
+// `cypher` (./cypher.js): its queries run on the notebook's graph, one per notebook in memory, and are collected the
+// same way. No worker or page here: those wrap this. smaltty (the TypeScript kit) is passed in, as for parseNotebook.
 
 import { action, cell } from './notebook.js';
 import { HeldWrite, NotebookDb, isFrame, type Rows, type WriteContext } from './database.js';
 import * as sqlModule from './sql.js';
+import * as cypherModule from './cypher.js';
 import { md } from './md.js';
 import { checkRowType, rowTypeOf, type RowTypeInfo } from './rowtype.js';
 import { controlInfo, createUi, type ControlInfo, type ControlSpec } from './ui.js';
 import { CHART_ROWS, Chart, chart, chartFromRows, checkColumns, type ChartOutput } from './chart.js';
 import { createParam, type ParamInfo, type ParamSpec } from './params.js';
 import { Relation, SqlQuery, registerCollected, statement, type CollectedTable } from './sql.js';
+import { CypherQuery, GraphResult, cypherQuery, graphPlanWrites, type GraphEngineModule, type GraphLike, type GraphNode, type GraphRelationship, type GraphValue, type GraphVocabulary } from './cypher.js';
 import { importSpecifiers, moduleOf, parseNotebook, type Cell, type Diagnostic, type Notebook, type TypeScriptKit } from './format.js';
 import { buildGraph, exportClosure, propagate, type Graph } from './graph.js';
 
@@ -51,9 +54,23 @@ export interface CellState {
   controls: ControlInfo[];
   /** When the output is a chart: the rows it draws. */
   outputChart: ChartOutput | null;
+  /** When the output is a Cypher result with nodes or relationships: what a graph view draws. */
+  outputGraph: GraphOutput | null;
   /** A plain SQL query cell's row type: what its last run's columns give, what is pinned, and whether they match. */
   rowType: RowTypeInfo | null;
 }
+
+/** A Cypher result's nodes and relationships, for a graph view: at most `GRAPH_LIMIT` nodes. */
+export interface GraphOutput {
+  nodes: GraphNode[];
+  relationships: GraphRelationship[];
+  /** How many the result holds in all: more than are given when the result is larger than the limit. */
+  nodeCount: number;
+  relationshipCount: number;
+}
+
+/** The most nodes a cell's graph output carries to the page (and their relationships). */
+export const GRAPH_LIMIT = 5000;
 
 export type ModuleLoader = (specifier: string) => Promise<Record<string, unknown>>;
 
@@ -75,6 +92,13 @@ export interface RuntimeOptions {
    * result. Without it they read a `Relation`.
    */
   frame?: (table: string) => object;
+  /**
+   * smaltcy, for Cypher cells: `import * as smaltcy from '@smaltworks/smaltcy'`. The notebook gets one graph, in memory,
+   * kept until the runtime is gone. Without it, `cypher` fails with a message.
+   */
+  graph?: GraphEngineModule;
+  /** @internal The graph to use (an imported notebook uses its importer's). */
+  graphInstance?: GraphLike;
   /** Rows of a collected output sent with the cell's state (the rest are fetched with `rows`). Default 50. */
   previewRows?: number;
   /**
@@ -156,6 +180,7 @@ export class Runtime {
   #signatures = new Map<string, string>();
   #queue: Promise<unknown> = Promise.resolve();
   #db: NotebookDb | null;
+  #graphDb: GraphLike | null = null;
   #context: WriteContext | null = null;
   #tables = new Map<string, Set<string>>();
   #builtins: Record<string, Record<string, unknown>>;
@@ -176,6 +201,7 @@ export class Runtime {
     this.#builtins = {
       smaltnb: {
         ...sqlModule,
+        ...cypherModule,
         md,
         ui: createUi((spec) => this.#resolveControl(spec)),
         chart,
@@ -185,6 +211,9 @@ export class Runtime {
         db: this.#db ? this.#db.handle() : new Proxy({}, { get: (_t, k) => (k === 'then' ? undefined : noDb()) }),
         exec: (strings: TemplateStringsArray, ...values: unknown[]) =>
           this.#db ? this.#db.exec(statement(strings, values)) : Promise.reject(new Error('This notebook has no database.')),
+        cypher: Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => cypherQuery(strings, values), {
+          run: (strings: TemplateStringsArray, ...values: unknown[]) => this.#runCypher(cypherQuery(strings, values)),
+        }),
       },
     };
     this.#paramValues = new Map(Object.entries(options.params ?? {}));
@@ -387,7 +416,7 @@ export class Runtime {
       if (!this.#states.has(c.id)) {
         this.#states.set(c.id, {
           id: c.id, status: 'idle', reason: null, values: {}, hasOutput: c.output !== null, output: undefined,
-          error: null, ms: null, runs: 0, outputTable: null, outputChart: null, controls: [], rowType: null,
+          error: null, ms: null, runs: 0, outputTable: null, outputChart: null, outputGraph: null, controls: [], rowType: null,
         });
       }
       this.#states.get(c.id)!.hasOutput = c.output !== null;
@@ -451,13 +480,14 @@ export class Runtime {
     for (const [name, p] of [...this.#paramInfo]) if (p.cell === id) this.#paramInfo.delete(name);
     try {
       const r = await compiled.fn(inputs);
-      this.#context = null;
       this.#declaring = null;
-      const collected = c.live || c.kind === 'setup' ? { values: r.values, output: r.output, outputTable: null, outputChart: null } : await this.#collect(id, r.values, r.output);
+      // Still the cell's context: a Cypher query it returns runs now, and its writes are checked as the cell's.
+      const collected = c.live || c.kind === 'setup' ? { values: r.values, output: r.output, outputTable: null, outputChart: null, outputGraph: null } : await this.#collect(id, r.values, r.output);
+      this.#context = null;
       const s = this.#states.get(id)!;
       this.#set(id, {
         status: 'ok', reason: null, error: null, values: collected.values, output: collected.output,
-        outputTable: collected.outputTable, outputChart: collected.outputChart, ms: performance.now() - t0, runs: s.runs + 1, controls: declaring.controls,
+        outputTable: collected.outputTable, outputChart: collected.outputChart, outputGraph: collected.outputGraph, ms: performance.now() - t0, runs: s.runs + 1, controls: declaring.controls,
         rowType: this.#rowType(c, collected.values),
       });
     } catch (err) {
@@ -481,6 +511,16 @@ export class Runtime {
     const out: Record<string, unknown> = { ...values };
     const one = async (value: unknown, table: string) => {
       if (replaced.has(value)) return replaced.get(value);
+      if (value instanceof CypherQuery || (value instanceof GraphResult && !sqlModule.collectedTable(value))) {
+        const result = value instanceof CypherQuery ? await this.#runCypher(value) : value;
+        if (this.#db && result.columns.length) {
+          const info = await this.#db.collectRows(table, result.columns, result.rows.map((r) => result.columns.map((c) => r[c])));
+          registerCollected(result, info);
+          kept.add(table);
+        }
+        replaced.set(value, result);
+        return result;
+      }
       if (!(value instanceof SqlQuery) && !isFrame(value)) return value;
       if (!this.#db) throw new Error('This notebook has no database to run its queries.');
       const info = value instanceof SqlQuery ? await this.#db.collectQuery(value, table) : await this.#db.collectFrame(value, table);
@@ -500,7 +540,65 @@ export class Runtime {
     const outputTable = info && this.#db
       ? { ...info, preview: await this.#db.rows(info.table, 0, this.#options.previewRows ?? 50) }
       : null;
-    return { values: out, output: collectedOutput, outputTable, outputChart };
+    return { values: out, output: collectedOutput, outputTable, outputChart, outputGraph: collectedOutput instanceof GraphResult ? graphOutput(collectedOutput) : null };
+  }
+
+  /** The notebook's graph: opened on first use, or the importer's. */
+  #graphDatabase(): GraphLike {
+    if (this.#graphDb) return this.#graphDb;
+    if (this.#options.graphInstance) return (this.#graphDb = this.#options.graphInstance);
+    if (!this.#options.graph) throw new Error('This notebook has no graph database: Cypher needs smaltcy (@smaltworks/smaltcy).');
+    return (this.#graphDb = this.#options.graph.open());
+  }
+
+  /** Runs a Cypher statement on the notebook's graph: a write is checked as SQL's are (DESIGN.md decision 7). */
+  async #runCypher(q: CypherQuery): Promise<GraphResult> {
+    const graph = this.#graphDatabase();
+    let writes: boolean;
+    try {
+      writes = graphPlanWrites(this.#options.graph ? this.#options.graph.compile(q.text).plan : null);
+    } catch (err) {
+      throw cypherError(err);
+    }
+    if (writes && this.#context && !this.#context.allowWrites) throw new HeldWrite('This Cypher statement', "the notebook's graph");
+    const params: Record<string, unknown> = {};
+    for (const [i, v] of q.values.entries()) params[`p${i + 1}`] = await this.#cypherParam(v, i + 1);
+    let r: ReturnType<GraphLike['run']>;
+    try {
+      r = graph.run(q.text, params);
+    } catch (err) {
+      throw cypherError(err);
+    }
+    const rows = r.rows.map((row) => Object.fromEntries(r.columns.map((c, i) => [c, row[i] as GraphValue])));
+    const counts = Object.fromEntries(Object.entries(r.counts ?? {}).filter((e): e is [string, number] => typeof e[1] === 'number' && e[1] > 0));
+    return new GraphResult(r.columns, rows, counts);
+  }
+
+  /** A `${}` value as a Cypher parameter: a collected result becomes its rows, as a list of maps. */
+  async #cypherParam(v: unknown, n: number): Promise<unknown> {
+    if (v instanceof GraphResult) return v.rows.map((r) => toCypherParam(r, n));
+    const info = sqlModule.collectedTable(v);
+    if (info) {
+      if (!this.#db) throw new Error(`cypher: \${} number ${n} is a collected result, and this notebook has no database to read it from.`);
+      return this.#db.records(info.table);
+    }
+    return toCypherParam(v, n);
+  }
+
+  /** What completion knows about the notebook's graph: its labels, relationship types and property keys. */
+  graphVocabulary(): GraphVocabulary | null {
+    if (!this.#graphDb && !this.#options.graphInstance) return null;
+    const g = this.#graphDatabase();
+    const stats = g.store.stats();
+    const keys = new Set<string>();
+    for (const q of ['MATCH (n) UNWIND keys(n) AS k RETURN DISTINCT k', 'MATCH ()-[r]->() UNWIND keys(r) AS k RETURN DISTINCT k']) {
+      try {
+        for (const row of g.run(q).rows) if (typeof row[0] === 'string') keys.add(row[0]);
+      } catch {
+        // A smaltcy without keys() on relationships: the node keys still help.
+      }
+    }
+    return { labels: [...stats.labels.keys()].sort(), types: [...stats.types.keys()].sort(), properties: [...keys].sort() };
   }
 
   /** A chart's rows: from a collected result's table, or from an array of row objects. */
@@ -526,7 +624,7 @@ export class Runtime {
 
   #fail(id: string, err: unknown, ms: number | null = null, controls?: ControlInfo[]) {
     const e = err instanceof Error ? err : new Error(String(err));
-    this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, outputChart: null, ms, ...(controls && { controls }) });
+    this.#set(id, { status: 'error', reason: e.message, error: { message: e.message, ...(e.stack && { stack: e.stack }) }, values: {}, output: undefined, outputTable: null, outputChart: null, outputGraph: null, ms, ...(controls && { controls }) });
   }
 
   /** A plain SQL query cell's row type after a run, from its collected result's columns (DESIGN.md decision 11). */
@@ -595,6 +693,7 @@ export class Runtime {
       child = new Runtime(source, {
         ts: this.#ts, fileName: path, importModule: this.#options.importModule, readNotebook: read,
         database: this.#options.database, frame: this.#options.frame, importing: chain, tablePrefix: `nb_${shortHash(path)}_`,
+        ...(this.#options.graph && { graph: this.#options.graph, graphInstance: this.#graphDatabase() }),
       });
       this.#imports.set(path, child);
     }
@@ -623,6 +722,39 @@ export class Runtime {
     this.#compiled.set(c.id, compiled);
     return compiled;
   }
+}
+
+/** A Cypher result's nodes and relationships for a graph view, up to GRAPH_LIMIT nodes; null when it has none. */
+function graphOutput(r: GraphResult): GraphOutput | null {
+  const g = r.graph();
+  if (!g.nodes.length && !g.relationships.length) return null;
+  const nodes = g.nodes.slice(0, GRAPH_LIMIT);
+  const ids = new Set(nodes.map((n) => n.id));
+  const relationships = g.nodes.length > GRAPH_LIMIT ? g.relationships.filter((x) => ids.has(x.start) && ids.has(x.end)) : g.relationships;
+  return { nodes, relationships, nodeCount: g.nodes.length, relationshipCount: g.relationships.length };
+}
+
+/** A value as a Cypher parameter: nodes and relationships become their properties; other objects are refused. */
+function toCypherParam(v: unknown, n: number): unknown {
+  if (v === null || ['number', 'string', 'boolean'].includes(typeof v)) return v;
+  if (typeof v === 'bigint') return Number(v);
+  if (Array.isArray(v)) return v.map((x) => toCypherParam(x, n));
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
+    const o = v as { kind?: unknown; properties?: unknown };
+    if ((o.kind === 'node' || o.kind === 'relationship') && o.properties && typeof o.properties === 'object') return toCypherParam(o.properties, n);
+    if (o.kind === 'path' && Array.isArray((o as { nodes?: unknown }).nodes)) return toCypherParam((o as { nodes: unknown[] }).nodes, n);
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, toCypherParam(x, n)]));
+  }
+  throw new TypeError(`cypher: \${} number ${n} is ${typeof v === 'object' ? (v as object).constructor?.name ?? 'an object' : typeof v}: a parameter is a value, a list, a map or a collected result.`);
+}
+
+/** smaltcy's error, as the cell's: its message, with its code's word kept out of the way. */
+function cypherError(err: unknown): Error {
+  if (!(err instanceof Error)) return new Error(String(err));
+  const e = new Error(`Cypher: ${err.message}`);
+  if (err.stack) e.stack = err.stack;
+  return e;
 }
 
 /** Creates a runtime for a notebook's source. Nothing runs until `runAll`, `run` or `update`. */

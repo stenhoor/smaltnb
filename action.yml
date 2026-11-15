@@ -28,7 +28,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@v5
       with:
         node-version: 22
     # smaltnb, with smaltdb, smaltql and smaltdf pinned in packed.json until they are on npm.
